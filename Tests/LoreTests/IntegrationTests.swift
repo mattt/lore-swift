@@ -101,4 +101,24 @@ import Testing
         #expect(try clone.read("a.txt") == "hello from alice\n")
     }
 
+    @Test func pushedBranchesAppearOnTheServer() async throws {
+        let (repository, url) = try await makePublishedRepository()
+        try await repository.createBranch(named: "feature")
+        try await repository.switchBranch(to: "feature")
+        try repository.write("feature\n", to: "a.txt")
+        try await repository.stage(["a.txt"])
+        try await repository.commit(message: "Feature")
+        try await repository.push()
+
+        let clone = try await Repository.clone(
+            from: url,
+            to: temporaryRepositoryPath("clone"),
+            options: Repository.Options(identity: "bob@example.com")
+        )
+        let remote = try await clone.branches().filter { $0.location == .remote }
+        #expect(Set(remote.map(\.name)) == ["main", "feature"])
+
+        try await clone.switchBranch(to: "feature")
+        #expect(try clone.read("a.txt") == "feature\n")
+    }
 }
