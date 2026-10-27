@@ -27,16 +27,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      - name: Cache Swift Package Manager dependencies
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cache/org.swift.swiftpm
-            .build
-          key: ${{ runner.os }}-swift-${{ matrix.swift }}-spm-${{ hashFiles('**/Package.resolved') }}
-          restore-keys: |
-            ${{ runner.os }}-swift-${{ matrix.swift }}-spm-
-
       - name: Fetch the Lore library and server
         run: Scripts/fetch-liblore.sh --with-server
 
