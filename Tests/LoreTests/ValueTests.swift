@@ -63,3 +63,17 @@ import Testing
         #expect(RepositoryID(bytes: Array(repeating: 1, count: 17)) == nil)
     }
 }
+
+@Suite struct MetadataValueTests {
+    @Test func encodesValuesAsText() throws {
+        #expect(MetadataValue.string("texture").encoded?.text == "texture")
+        #expect(MetadataValue.number(42).encoded?.text == "42")
+        #expect(MetadataValue.boolean(false).encoded?.text == "false")
+        #expect(MetadataValue.hash(Array(repeating: 0xab, count: 2)).encoded?.text == "abab")
+    }
+
+    @Test func binaryAndAddressValuesHaveNoText() {
+        #expect(MetadataValue.binary(Array("abc".utf8)).encoded == nil)
+        #expect(MetadataValue.address(hash: [], context: []).encoded == nil)
+    }
+}
