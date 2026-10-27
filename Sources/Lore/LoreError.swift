@@ -1,4 +1,5 @@
 import CLore
+import Foundation
 
 /// An error that the Lore library reports for a failed operation.
 ///
@@ -202,6 +203,14 @@ extension LoreError: CustomStringConvertible {
             }
         }
         return result
+    }
+}
+
+extension LoreError: LocalizedError {
+    /// The message from the library,
+    /// or a description of the code if the message is empty.
+    public var errorDescription: String? {
+        message.isEmpty ? "Lore operation failed with code \(code)" : message
     }
 }
 

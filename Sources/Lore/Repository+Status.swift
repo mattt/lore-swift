@@ -62,7 +62,7 @@ public struct Status: Sendable, Hashable {
     public var revision: RevisionID?
 
     /// The number of the current revision on its branch.
-    public var revisionNumber: UInt64
+    public var revisionNumber: Int
 
     /// The latest revision of the branch on the server,
     /// or `nil` if it's unknown.
@@ -93,7 +93,7 @@ public struct FileStatus: Sendable, Hashable {
     public var previousPath: String?
 
     /// The size of the file in bytes.
-    public var size: UInt64
+    public var size: Int
 
     /// The change to the file.
     public var action: FileAction
@@ -119,19 +119,19 @@ extension Repository {
     ///   - paths: The paths to check,
     ///     relative to the repository directory.
     ///     Pass an empty array to check every path.
-    ///   - scan: Whether to compare the files on disk
+    ///   - scanning: Whether to compare the files on disk
     ///     with the current revision.
     ///     Without a scan,
     ///     the report includes only the files
     ///     that the repository already marks as changed.
     /// - Returns: The state of the working directory.
     /// - Throws: ``LoreError`` if the library can't report the status.
-    public func status(paths: [String] = [], scan: Bool = true) async throws -> Status {
+    public func status(of paths: [String] = [], scanning: Bool = true) async throws -> Status {
         let events = try await perform(
             lore_repository_status_async,
             configure: { (arguments: UnsafeMutablePointer<lore_repository_status_args_t>, arena) in
                 arguments.pointee.staged = 1
-                arguments.pointee.scan = UInt8(scan)
+                arguments.pointee.scan = UInt8(scanning)
                 arguments.pointee.paths = arena.strings(paths)
             },
             transform: StatusEvent.init
@@ -177,7 +177,7 @@ private enum StatusEvent: Sendable {
                     branch: String(data.branch_name),
                     branchID: BranchID(data.branch),
                     revision: RevisionID(data.revision),
-                    revisionNumber: data.revision_number,
+                    revisionNumber: Int(clamping: data.revision_number),
                     remoteRevision: RevisionID(data.revision_remote),
                     isLocalAhead: Bool(data.is_local_ahead),
                     isRemoteAhead: Bool(data.is_remote_ahead),
@@ -192,7 +192,7 @@ private enum StatusEvent: Sendable {
                 FileStatus(
                     path: String(data.path),
                     previousPath: previousPath.isEmpty ? nil : previousPath,
-                    size: data.size,
+                    size: Int(clamping: data.size),
                     action: FileAction(rawValue: data.action.rawValue),
                     kind: NodeKind(rawValue: data.type.rawValue),
                     isStaged: Bool(data.flag_staged),

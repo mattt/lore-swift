@@ -15,17 +15,9 @@ import CLore
 /// so the methods finish their work even if the calling task is cancelled.
 ///
 /// Paths that you pass to the methods of a repository,
-/// such as the paths to ``stage(_:scan:)``,
+/// such as the paths to ``stage(_:scanning:)``,
 /// are relative to the repository directory unless they're absolute.
-///
-/// Methods that take a revision accept the forms
-/// that the `lore` command-line tool accepts:
-/// a whole hash signature,
-/// such as the ``RevisionID/description`` of a revision ID,
-/// or `branch@number`, `branch@LATEST`, or `branch@hash`,
-/// where an omitted branch means the current branch.
-/// A revision identifies its branch,
-/// so syncing to a revision on another branch moves onto that branch.
+/// Methods that take a revision take a ``RevisionSpecifier``.
 public struct Repository: Sendable, Hashable {
     /// The path of the repository directory.
     public var path: String
@@ -59,7 +51,7 @@ extension Repository {
 
         /// A Boolean value that indicates whether operations
         /// run without connecting to a server.
-        public var offline: Bool
+        public var isOffline: Bool
 
         /// The number of parallel storage connections for bulk transfers,
         /// or `nil` for the library's default.
@@ -69,15 +61,15 @@ extension Repository {
         ///
         /// - Parameters:
         ///   - identity: The identity that commits record.
-        ///   - offline: Whether operations run without connecting to a server.
+        ///   - isOffline: Whether operations run without connecting to a server.
         ///   - maximumConnections: The number of parallel storage connections.
         public init(
             identity: String? = nil,
-            offline: Bool = false,
+            isOffline: Bool = false,
             maximumConnections: Int? = nil
         ) {
             self.identity = identity
-            self.offline = offline
+            self.isOffline = isOffline
             self.maximumConnections = maximumConnections
         }
     }
@@ -93,7 +85,7 @@ extension Repository {
         globals.pointee.repository_path = arena.string(path)
         globals.pointee.working_directory = arena.string(path)
         globals.pointee.identity = arena.string(options.identity)
-        globals.pointee.offline = UInt8(options.offline)
+        globals.pointee.offline = UInt8(options.isOffline)
         if let maximumConnections = options.maximumConnections {
             globals.pointee.max_connections = UInt32(clamping: maximumConnections)
         }

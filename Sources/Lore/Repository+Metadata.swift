@@ -12,7 +12,7 @@ public enum MetadataValue: Sendable, Hashable {
     case boolean(Bool)
     /// Raw bytes of any length.
     ///
-    /// ``Repository/setMetadata(_:forPaths:)`` can't set a binary value:
+    /// ``Repository/setMetadata(_:of:)`` can't set a binary value:
     /// in Lore 0.11.0,
     /// `lore_file_metadata_set` reads the text of a binary value
     /// as the path of a file,
@@ -92,15 +92,15 @@ extension Repository {
     /// - Throws: ``LoreError`` if the library can't read the metadata.
     public func metadata(
         forKey key: String,
-        path: String,
-        revision: String? = nil
+        of path: String,
+        revision: RevisionSpecifier? = nil
     ) async throws -> MetadataValue? {
         let values = try await perform(
             lore_file_metadata_get_async,
             configure: { (arguments: UnsafeMutablePointer<lore_file_metadata_get_args_t>, arena) in
                 arguments.pointee.key = arena.string(key)
                 arguments.pointee.path = arena.string(path)
-                arguments.pointee.revision = arena.string(revision)
+                arguments.pointee.revision = arena.string(revision?.rawValue)
             },
             transform: { event -> MetadataValue? in
                 guard event.pointee.tag == LORE_EVENT_METADATA.rawValue else {
@@ -124,7 +124,7 @@ extension Repository {
     ///   for a ``MetadataValue/binary(_:)``
     ///   or ``MetadataValue/address(hash:context:)`` value,
     ///   which the binding can't set.
-    public func setMetadata(_ values: [String: MetadataValue], forPaths paths: [String]) async throws {
+    public func setMetadata(_ values: [String: MetadataValue], of paths: [String]) async throws {
         let entries = values.sorted { $0.key < $1.key }
         var keys: [String] = []
         var texts: [String] = []

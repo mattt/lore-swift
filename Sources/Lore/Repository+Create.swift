@@ -2,23 +2,23 @@ import CLore
 
 /// The progress of a clone.
 public struct CloneProgress: Sendable, Hashable {
-    /// The number of files finished.
-    public var filesCompleted: UInt64
-    /// The number of files to process, as discovered so far.
-    public var fileCount: UInt64
+    /// The number of files cloned.
+    public var filesCloned: Int
+    /// The total number of files to clone, as discovered so far.
+    public var filesToClone: Int
     /// The number of bytes transferred.
-    public var bytesTransferred: UInt64
-    /// The number of bytes to transfer, as discovered so far.
-    public var bytesTotal: UInt64
+    public var bytesTransferred: Int
+    /// The total number of bytes to transfer, as discovered so far.
+    public var bytesToTransfer: Int
     /// A Boolean value that indicates whether the clone
-    /// has discovered every file to process.
+    /// has discovered every file to clone.
     public var isDiscoveryComplete: Bool
 
     init(_ data: lore_repository_clone_count_data_t) {
-        filesCompleted = data.file_complete
-        fileCount = data.file_count
-        bytesTransferred = data.bytes_transferred
-        bytesTotal = data.bytes_total
+        filesCloned = Int(clamping: data.file_complete)
+        filesToClone = Int(clamping: data.file_count)
+        bytesTransferred = Int(clamping: data.bytes_transferred)
+        bytesToTransfer = Int(clamping: data.bytes_total)
         isDiscoveryComplete = Bool(data.discovery_complete)
     }
 }
@@ -26,7 +26,7 @@ public struct CloneProgress: Sendable, Hashable {
 extension Repository {
     /// Creates a repository in a directory.
     ///
-    /// When `options.offline` is `true`,
+    /// When `options.isOffline` is `true`,
     /// `name` names the repository;
     /// otherwise it's the URL of the repository on a server,
     /// such as `lore://127.0.0.1:41337/my-project`.
@@ -74,7 +74,7 @@ extension Repository {
     public static func clone(
         from url: String,
         to path: String,
-        revision: String? = nil,
+        revision: RevisionSpecifier? = nil,
         options: Options = Options()
     ) async throws -> Repository {
         let repository = Repository(path: path, options: options)
@@ -104,7 +104,7 @@ extension Repository {
     public static func cloneUpdates(
         from url: String,
         to path: String,
-        revision: String? = nil,
+        revision: RevisionSpecifier? = nil,
         options: Options = Options()
     ) -> AsyncThrowingStream<OperationUpdate<CloneProgress, Repository>, any Error> {
         let repository = Repository(path: path, options: options)
@@ -128,11 +128,11 @@ extension Repository {
 
     private static func cloneArguments(
         url: String,
-        revision: String?
+        revision: RevisionSpecifier?
     ) -> (UnsafeMutablePointer<lore_repository_clone_args_t>, Arena) -> Void {
         { arguments, arena in
             arguments.pointee.repository_url = arena.string(url)
-            arguments.pointee.revision = arena.string(revision)
+            arguments.pointee.revision = arena.string(revision?.rawValue)
         }
     }
 }

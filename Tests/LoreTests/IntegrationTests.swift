@@ -57,7 +57,7 @@ import Testing
         #expect(push.revisionNumber == 1)
         #expect(push.revisionCount == 1)
         #expect(!push.wasAlreadyPushed)
-        #expect(progress.last.map { $0.bytesTransferred == $0.bytesTotal } ?? true)
+        #expect(progress.last.map { $0.bytesTransferred == $0.bytesToTransfer } ?? true)
 
         let after = try await repository.status()
         #expect(after.remoteRevision == revision.id)
@@ -86,7 +86,7 @@ import Testing
         let clone = try #require(cloned)
         #expect(clone.path == clonePath)
         #expect(try clone.read("a.txt") == "hello\n")
-        #expect(progress.last?.filesCompleted == 1)
+        #expect(progress.last?.filesCloned == 1)
         #expect(progress.last?.isDiscoveryComplete == true)
 
         try repository.write("hello from alice\n", to: "a.txt")
@@ -135,6 +135,7 @@ import Testing
 
         let status = try await repository.locks(on: ["a.txt"])
         #expect(status.map(\.path) == ["a.txt"])
+        #expect(status.allSatisfy { abs($0.acquisitionDate.timeIntervalSinceNow) < 60 })
         let query = try await repository.locks()
         #expect(query.map(\.path) == ["a.txt"])
         #expect(query.first?.branchID != nil)

@@ -18,7 +18,7 @@ public struct Revision: Sendable, Hashable, Identifiable {
     public var id: RevisionID
 
     /// The number of the revision on its branch.
-    public var number: UInt64
+    public var number: Int
 
     /// The parents of the revision:
     /// none for the first revision,
@@ -38,17 +38,17 @@ extension Repository {
     /// - Parameters:
     ///   - paths: The paths to stage, relative to the repository directory.
     ///     Pass `["."]` to stage every change.
-    ///   - scan: Whether to scan the directories in `paths` for changes
+    ///   - scanning: Whether to scan the directories in `paths` for changes
     ///     that the repository hasn't recorded yet.
     /// - Returns: The changes that were staged.
     /// - Throws: ``LoreError`` if the library can't stage the files.
     @discardableResult
-    public func stage(_ paths: [String], scan: Bool = true) async throws -> [FileChange] {
+    public func stage(_ paths: [String], scanning: Bool = true) async throws -> [FileChange] {
         try await perform(
             lore_file_stage_async,
             configure: { (arguments: UnsafeMutablePointer<lore_file_stage_args_t>, arena) in
                 arguments.pointee.paths = arena.strings(paths)
-                arguments.pointee.scan = UInt8(scan)
+                arguments.pointee.scan = UInt8(scanning)
             },
             transform: { event in
                 guard event.pointee.tag == LORE_EVENT_FILE_STAGE_FILE.rawValue else {
@@ -68,7 +68,7 @@ extension Repository {
     /// Commits the staged changes as a new revision on the current branch.
     ///
     /// The new revision is local
-    /// until you ``push(branch:fastForward:)`` it.
+    /// until you ``push(branch:allowingFastForward:)`` it.
     ///
     /// - Parameter message: The commit message.
     /// - Returns: The new revision.
@@ -92,7 +92,7 @@ extension Repository {
                 }
                 return Revision(
                     id: id,
-                    number: data.revision_number,
+                    number: Int(clamping: data.revision_number),
                     parents: [RevisionID(data.parent), RevisionID(data.parent_other)]
                         .compactMap { $0 },
                     branchID: BranchID(data.branch)

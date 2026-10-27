@@ -1,3 +1,4 @@
+import Foundation
 import Synchronization
 import Testing
 
@@ -21,21 +22,23 @@ import Testing
         try Library.setLogHandler(level: .debug) { messages.append($0) }
         defer { try? Library.setLogHandler(nil) }
 
+        let start = Date()
         _ = try await makeOfflineRepository()
         #expect(messages.values.contains { $0.message.contains("repository::create") })
         #expect(messages.values.allSatisfy { $0.level >= .debug })
+        #expect(messages.values.allSatisfy { abs($0.date.timeIntervalSince(start)) < 60 })
     }
 }
 
 /// Collects log messages from library threads.
 private final class Messages: Sendable {
-    private let storage = Mutex<[Library.LogMessage]>([])
+    private let storage = Mutex<[Library.LogEntry]>([])
 
-    var values: [Library.LogMessage] {
+    var values: [Library.LogEntry] {
         storage.withLock { $0 }
     }
 
-    func append(_ message: Library.LogMessage) {
+    func append(_ message: Library.LogEntry) {
         storage.withLock { $0.append(message) }
     }
 }

@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import Lore
@@ -24,6 +25,12 @@ import Testing
     @Test func descriptionWithoutMessage() {
         let error = LoreError(code: .init(rawValue: 42))
         #expect(error.description == "Lore operation failed with code 42")
+    }
+
+    @Test func localizedDescriptionIsTheMessage() {
+        let error: any Error = LoreError(code: .nothingStaged, message: "nothing to commit")
+        #expect(error.localizedDescription == "nothing to commit")
+        #expect(LoreError(code: .init(rawValue: 42)).localizedDescription == "Lore operation failed with code 42")
     }
 
     @Test(arguments: [
@@ -57,10 +64,30 @@ import Testing
         #expect(RevisionID(text) == nil)
     }
 
+    @Test func branchIDRoundTripsThroughHexadecimal() throws {
+        let text = "00112233445566778899aabbccddeeff"
+        let branch = try #require(BranchID(text))
+        #expect(branch.description == text)
+        #expect(BranchID(String(text.dropLast(2))) == nil)
+        #expect(RepositoryID(text)?.description == text)
+    }
+
     @Test func identifiersRequireTheirByteCount() {
         #expect(RevisionID(bytes: Array(repeating: 1, count: 31)) == nil)
         #expect(BranchID(bytes: Array(repeating: 1, count: 16)) != nil)
         #expect(RepositoryID(bytes: Array(repeating: 1, count: 17)) == nil)
+    }
+}
+
+@Suite struct RevisionSpecifierTests {
+    @Test func specifiersUseTheCommandLineForms() throws {
+        let id = try #require(RevisionID(String(repeating: "ab", count: 32)))
+        #expect(RevisionSpecifier.id(id).rawValue == id.description)
+        #expect(RevisionSpecifier.number(3).rawValue == "@3")
+        #expect(RevisionSpecifier.number(3, on: "main").rawValue == "main@3")
+        #expect(RevisionSpecifier.latest().rawValue == "@LATEST")
+        #expect(RevisionSpecifier.latest(on: "feature").rawValue == "feature@LATEST")
+        #expect(("main@2" as RevisionSpecifier) == .number(2, on: "main"))
     }
 }
 

@@ -5,14 +5,14 @@ public struct Dependency: Sendable, Hashable {
     /// The path of the file that has the dependency.
     public var path: String
 
-    /// The path of the file that it depends on,
-    /// or that depends on it when you list dependents.
+    /// The path of the file that ``path`` depends on,
+    /// directly or through other files.
     public var dependency: String
 
     /// The tags on the dependency.
     public var tags: [String]
 
-    /// The depth of the dependency in the traversal:
+    /// The depth of the dependency in the listing:
     /// 0 for a direct dependency.
     public var depth: Int
 }
@@ -65,31 +65,81 @@ extension Repository {
         return counts.last ?? 0
     }
 
-    /// Lists the dependencies of files.
+    /// Lists the files that files depend on.
     ///
     /// - Parameters:
     ///   - paths: The paths of the files, relative to the repository directory.
     ///   - revision: The revision to read,
     ///     or `nil` for the current state of the working directory.
     ///   - recursive: Whether to follow dependencies of dependencies.
-    ///   - dependents: Whether to list the files that depend on `paths`
-    ///     instead of the files that `paths` depend on.
     ///   - tags: Tags to filter the dependencies by,
     ///     or an empty array for every dependency.
     ///   - depthLimit: The number of levels that a recursive listing follows,
     ///     such as 1 for direct dependencies only,
     ///     or `nil` for no limit.
     /// - Returns: The dependencies, grouped by file in the order of `paths`.
+    ///   The ``Dependency/path`` of each is the file in `paths`.
     /// - Throws: ``LoreError`` if the library can't list the dependencies,
     ///   or with ``LoreError/Code/invalidArguments``
     ///   if `depthLimit` is less than 1.
     public func dependencies(
         of paths: [String],
-        revision: String? = nil,
+        revision: RevisionSpecifier? = nil,
         recursive: Bool = false,
-        dependents: Bool = false,
         tags: [String] = [],
         depthLimit: Int? = nil
+    ) async throws -> [Dependency] {
+        try await listDependencies(
+            of: paths,
+            revision: revision,
+            recursive: recursive,
+            dependents: false,
+            tags: tags,
+            depthLimit: depthLimit
+        )
+    }
+
+    /// Lists the files that depend on files.
+    ///
+    /// - Parameters:
+    ///   - paths: The paths of the files, relative to the repository directory.
+    ///   - revision: The revision to read,
+    ///     or `nil` for the current state of the working directory.
+    ///   - recursive: Whether to follow dependents of dependents.
+    ///   - tags: Tags to filter the dependencies by,
+    ///     or an empty array for every dependency.
+    ///   - depthLimit: The number of levels that a recursive listing follows,
+    ///     such as 1 for direct dependents only,
+    ///     or `nil` for no limit.
+    /// - Returns: The dependencies, grouped by file in the order of `paths`.
+    ///   The ``Dependency/dependency`` of each is the file in `paths`.
+    /// - Throws: ``LoreError`` if the library can't list the dependents,
+    ///   or with ``LoreError/Code/invalidArguments``
+    ///   if `depthLimit` is less than 1.
+    public func dependents(
+        of paths: [String],
+        revision: RevisionSpecifier? = nil,
+        recursive: Bool = false,
+        tags: [String] = [],
+        depthLimit: Int? = nil
+    ) async throws -> [Dependency] {
+        try await listDependencies(
+            of: paths,
+            revision: revision,
+            recursive: recursive,
+            dependents: true,
+            tags: tags,
+            depthLimit: depthLimit
+        )
+    }
+
+    private func listDependencies(
+        of paths: [String],
+        revision: RevisionSpecifier?,
+        recursive: Bool,
+        dependents: Bool,
+        tags: [String],
+        depthLimit: Int?
     ) async throws -> [Dependency] {
         // The library reads a limit of 0 as no limit.
         if let depthLimit, depthLimit < 1 {
@@ -102,7 +152,7 @@ extension Repository {
             lore_file_dependency_list_async,
             configure: { (arguments: UnsafeMutablePointer<lore_file_dependency_list_args_t>, arena) in
                 arguments.pointee.paths = arena.strings(paths)
-                arguments.pointee.revision = arena.string(revision)
+                arguments.pointee.revision = arena.string(revision?.rawValue)
                 arguments.pointee.recursive = UInt8(recursive)
                 arguments.pointee.reverse = UInt8(dependents)
                 arguments.pointee.tags = arena.strings(tags)
@@ -111,15 +161,20 @@ extension Repository {
             transform: DependencyListEvent.init
         )
         // Each entry belongs to the file that the last FILE event named.
-        var path = ""
+        var file = ""
         var dependencies: [Dependency] = []
         for event in events {
             switch event {
-            case .file(let file):
-                path = file
-            case .entry(let dependency, let tags, let depth):
+            case .file(let path):
+                file = path
+            case .entry(let entry, let tags, let depth):
                 dependencies.append(
-                    Dependency(path: path, dependency: dependency, tags: tags, depth: depth)
+                    Dependency(
+                        path: dependents ? entry : file,
+                        dependency: dependents ? file : entry,
+                        tags: tags,
+                        depth: depth
+                    )
                 )
             }
         }

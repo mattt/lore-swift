@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import Lore
@@ -10,6 +11,7 @@ import Testing
         let revision = try await repository.commit(message: "First")
 
         let main = try #require(try await repository.branches().first)
+        #expect(abs(main.creationDate.timeIntervalSinceNow) < 60)
         #expect(main.name == "main")
         #expect(main.isCurrent)
         #expect(main.location == .local)

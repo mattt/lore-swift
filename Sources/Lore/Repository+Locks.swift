@@ -1,4 +1,5 @@
 import CLore
+import Foundation
 
 /// A lock on a file, held on the server.
 public struct FileLock: Sendable, Hashable {
@@ -8,8 +9,8 @@ public struct FileLock: Sendable, Hashable {
     /// The identifier of the user who holds the lock.
     public var owner: String
 
-    /// The time the lock was acquired, as the library reports it.
-    public var timestamp: UInt64
+    /// The time the lock was acquired.
+    public var acquisitionDate: Date
 
     /// The branch that the lock belongs to,
     /// when the library reports it.
@@ -141,7 +142,7 @@ extension Repository {
                 return FileLock(
                     path: String(data.path),
                     owner: String(data.owner),
-                    timestamp: data.locked_at
+                    acquisitionDate: Date(millisecondsSince1970: data.locked_at)
                 )
             }
         )
@@ -176,7 +177,7 @@ extension Repository {
                 return FileLock(
                     path: String(data.path),
                     owner: String(data.owner),
-                    timestamp: data.locked_at,
+                    acquisitionDate: Date(millisecondsSince1970: data.locked_at),
                     branchID: BranchID(data.branch)
                 )
             }

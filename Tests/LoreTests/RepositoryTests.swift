@@ -78,7 +78,7 @@ import Testing
         try await repository.stage(["a.txt"])
         try await repository.commit(message: "Two")
 
-        let result = try await repository.sync(to: first.id.description)
+        let result = try await repository.sync(to: .id(first.id))
         #expect(result.revision == first.id)
         #expect(result.revisionNumber == 1)
         #expect(!result.isMerge)
@@ -91,7 +91,7 @@ import Testing
         try await repository.stage(["a.txt"])
         let revision = try await repository.commit(message: "One")
 
-        for specifier: String? in [nil, "@LATEST", "main@1"] {
+        for specifier: RevisionSpecifier? in [nil, .latest(), .number(1, on: "main")] {
             let result = try await repository.sync(to: specifier)
             #expect(result.revision == revision.id)
             #expect(result.revisionNumber == 1)

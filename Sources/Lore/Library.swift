@@ -1,4 +1,5 @@
 import CLore
+import Foundation
 import Synchronization
 
 /// Process-wide information about and control of the Lore library.
@@ -65,16 +66,15 @@ extension Library {
     }
 
     /// A log message that the library reports during an operation.
-    public struct LogMessage: Sendable, Hashable {
+    public struct LogEntry: Sendable, Hashable {
         /// The severity of the message.
         public var level: LogLevel
         /// The text of the message.
         public var message: String
         /// The source location in the library that produced the message.
         public var location: String
-        /// The time the library produced the message,
-        /// as the library reports it.
-        public var timestamp: UInt64
+        /// The time the library produced the message.
+        public var date: Date
     }
 
     /// Sends the library's log messages at or above a level to a handler.
@@ -85,11 +85,11 @@ extension Library {
     ///
     /// - Parameters:
     ///   - level: The minimum level of the messages the library reports.
-    ///   - handler: The function that receives each message, or `nil`.
+    ///   - handler: The function that receives each entry, or `nil`.
     /// - Throws: ``LoreError`` if the library rejects the configuration.
     public static func setLogHandler(
         level: LogLevel = .info,
-        _ handler: (@Sendable (LogMessage) -> Void)?
+        _ handler: (@Sendable (LogEntry) -> Void)?
     ) throws {
         LogHandler.current.withLock { $0 = handler }
         let arena = Arena()
@@ -106,7 +106,7 @@ extension Library {
 
 /// The process-wide handler for log events.
 enum LogHandler {
-    static let current = Mutex<(@Sendable (Library.LogMessage) -> Void)?>(nil)
+    static let current = Mutex<(@Sendable (Library.LogEntry) -> Void)?>(nil)
 
     static func dispatch(_ data: lore_log_event_data_t) {
         guard let handler = current.withLock({ $0 }),
@@ -115,11 +115,11 @@ enum LogHandler {
             return
         }
         handler(
-            Library.LogMessage(
+            Library.LogEntry(
                 level: level,
                 message: String(data.message),
                 location: String(data.location),
-                timestamp: data.timestamp
+                date: Date(millisecondsSince1970: data.timestamp)
             )
         )
     }

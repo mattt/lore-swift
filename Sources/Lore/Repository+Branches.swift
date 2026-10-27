@@ -1,4 +1,5 @@
 import CLore
+import Foundation
 
 /// A branch of a repository.
 public struct Branch: Sendable, Hashable, Identifiable {
@@ -29,8 +30,8 @@ public struct Branch: Sendable, Hashable, Identifiable {
     /// The identifier of the user who created the branch.
     public var creator: String
 
-    /// The creation time of the branch, as the library reports it.
-    public var creationTimestamp: UInt64
+    /// The time the branch was created.
+    public var creationDate: Date
 
     /// A Boolean value that indicates whether the branch
     /// is the current branch of the working directory.
@@ -48,14 +49,14 @@ extension Repository {
     /// so a branch can appear twice:
     /// once with each ``Branch/Location``.
     ///
-    /// - Parameter includeArchived: Whether to include archived local branches.
+    /// - Parameter includingArchived: Whether to include archived local branches.
     /// - Returns: The branches, in the order that the library reports them.
     /// - Throws: ``LoreError`` if the library can't list the branches.
-    public func branches(includeArchived: Bool = false) async throws -> [Branch] {
+    public func branches(includingArchived: Bool = false) async throws -> [Branch] {
         try await perform(
             lore_branch_list_async,
             configure: { (arguments: UnsafeMutablePointer<lore_branch_list_args_t>, _) in
-                arguments.pointee.archived = UInt8(includeArchived)
+                arguments.pointee.archived = UInt8(includingArchived)
             },
             transform: { event -> Branch? in
                 guard event.pointee.tag == LORE_EVENT_BRANCH_LIST_ENTRY.rawValue else {
@@ -72,7 +73,7 @@ extension Repository {
                     latestRevision: RevisionID(data.latest),
                     location: Branch.Location(rawValue: data.location.rawValue) ?? .local,
                     creator: String(data.creator),
-                    creationTimestamp: data.created,
+                    creationDate: Date(millisecondsSince1970: data.created),
                     isCurrent: Bool(data.is_current),
                     isArchived: Bool(data.archived)
                 )
@@ -125,14 +126,14 @@ extension Repository {
     @discardableResult
     public func switchBranch(
         to name: String,
-        revision: String? = nil,
+        revision: RevisionSpecifier? = nil,
         discardingLocalChanges: Bool = false
     ) async throws -> RevisionID? {
         let revisions = try await perform(
             lore_branch_switch_async,
             configure: { (arguments: UnsafeMutablePointer<lore_branch_switch_args_t>, arena) in
                 arguments.pointee.branch = arena.string(name)
-                arguments.pointee.revision = arena.string(revision)
+                arguments.pointee.revision = arena.string(revision?.rawValue)
                 arguments.pointee.reset = UInt8(discardingLocalChanges)
             },
             transform: { event -> RevisionID?? in

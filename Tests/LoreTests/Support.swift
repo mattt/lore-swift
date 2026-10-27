@@ -46,7 +46,7 @@ func makeOfflineRepository() async throws -> Repository {
     try await Repository.create(
         at: temporaryRepositoryPath(),
         name: "test",
-        options: Repository.Options(identity: "test@example.com", offline: true)
+        options: Repository.Options(identity: "test@example.com", isOffline: true)
     )
 }
 

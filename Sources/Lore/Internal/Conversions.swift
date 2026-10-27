@@ -1,4 +1,5 @@
 import CLore
+import Foundation
 
 extension String {
     /// Copies a library string.
@@ -37,6 +38,14 @@ extension UInt8 {
     /// Converts a Boolean value to a library flag.
     init(_ flag: Bool) {
         self = flag ? 1 : 0
+    }
+}
+
+extension Date {
+    /// Converts a library timestamp,
+    /// which counts milliseconds since 00:00:00 UTC on 1 January 1970.
+    init(millisecondsSince1970 milliseconds: UInt64) {
+        self.init(timeIntervalSince1970: TimeInterval(milliseconds) / 1000)
     }
 }
 

@@ -13,10 +13,10 @@ public struct PushResult: Sendable, Hashable {
     public var revision: RevisionID?
 
     /// The number of the latest revision on the server after the push.
-    public var revisionNumber: UInt64?
+    public var revisionNumber: Int?
 
     /// The number of local revisions that the push sent.
-    public var revisionCount: UInt64
+    public var revisionCount: Int
 
     /// A Boolean value that indicates whether the server
     /// already had the local revision.
@@ -26,13 +26,13 @@ public struct PushResult: Sendable, Hashable {
 /// The progress of a push.
 public struct PushProgress: Sendable, Hashable {
     /// The number of fragments transferred.
-    public var fragmentsTransferred: UInt64
-    /// The number of fragments to transfer.
-    public var fragmentCount: UInt64
+    public var fragmentsTransferred: Int
+    /// The total number of fragments to transfer.
+    public var fragmentsToTransfer: Int
     /// The number of bytes transferred.
-    public var bytesTransferred: UInt64
-    /// The number of bytes to transfer.
-    public var bytesTotal: UInt64
+    public var bytesTransferred: Int
+    /// The total number of bytes to transfer.
+    public var bytesToTransfer: Int
 }
 
 /// The result of a sync.
@@ -42,7 +42,7 @@ public struct SyncResult: Sendable, Hashable {
 
     /// The number of the revision,
     /// or 0 if the sync staged a merge.
-    public var revisionNumber: UInt64
+    public var revisionNumber: Int
 
     /// A Boolean value that indicates whether
     /// the sync staged a merge revision.
@@ -57,16 +57,16 @@ public struct SyncResult: Sendable, Hashable {
 public struct SyncProgress: Sendable, Hashable {
     /// The number of files updated.
     public var filesUpdated: Int
-    /// The number of files to update.
+    /// The total number of files to update.
     public var filesToUpdate: Int
     /// The number of files deleted.
     public var filesDeleted: Int
-    /// The number of files to delete.
+    /// The total number of files to delete.
     public var filesToDelete: Int
     /// The number of bytes written.
-    public var bytesUpdated: UInt64
-    /// The number of bytes to write.
-    public var bytesToUpdate: UInt64
+    public var bytesWritten: Int
+    /// The total number of bytes to write.
+    public var bytesToWrite: Int
     /// A Boolean value that indicates whether the sync
     /// has discovered all of its work.
     public var isDiscoveryComplete: Bool
@@ -78,16 +78,16 @@ extension Repository {
     /// - Parameters:
     ///   - branch: The name of the branch to push,
     ///     or `nil` for the current branch.
-    ///   - fastForward: Whether the server may fast-forward merge
+    ///   - allowingFastForward: Whether the server may fast-forward merge
     ///     if the branch on the server has moved.
     /// - Returns: The result of the push.
     /// - Throws: ``LoreError`` if the library can't push the branch.
     @discardableResult
-    public func push(branch: String? = nil, fastForward: Bool = false) async throws -> PushResult {
+    public func push(branch: String? = nil, allowingFastForward: Bool = false) async throws -> PushResult {
         PushEvent.result(
             try await perform(
                 lore_branch_push_async,
-                configure: pushArguments(branch: branch, fastForward: fastForward),
+                configure: pushArguments(branch: branch, allowingFastForward: allowingFastForward),
                 transform: PushEvent.init
             )
         )
@@ -102,17 +102,17 @@ extension Repository {
     /// - Parameters:
     ///   - branch: The name of the branch to push,
     ///     or `nil` for the current branch.
-    ///   - fastForward: Whether the server may fast-forward merge
+    ///   - allowingFastForward: Whether the server may fast-forward merge
     ///     if the branch on the server has moved.
     /// - Returns: A stream of the push's progress, then its result.
     ///   The stream throws ``LoreError`` if the push fails.
     public func pushUpdates(
         branch: String? = nil,
-        fastForward: Bool = false
+        allowingFastForward: Bool = false
     ) -> AsyncThrowingStream<OperationUpdate<PushProgress, PushResult>, any Error> {
         updates(
             lore_branch_push_async,
-            configure: pushArguments(branch: branch, fastForward: fastForward),
+            configure: pushArguments(branch: branch, allowingFastForward: allowingFastForward),
             transform: PushEvent.init,
             progress: { event in
                 if case .progress(let progress) = event { progress } else { nil }
@@ -123,11 +123,11 @@ extension Repository {
 
     private func pushArguments(
         branch: String?,
-        fastForward: Bool
+        allowingFastForward: Bool
     ) -> (UnsafeMutablePointer<lore_branch_push_args_t>, Arena) -> Void {
         { arguments, arena in
             arguments.pointee.branch = arena.string(branch)
-            arguments.pointee.fast_forward_merge = UInt8(fastForward)
+            arguments.pointee.fast_forward_merge = UInt8(allowingFastForward)
         }
     }
 
@@ -147,7 +147,7 @@ extension Repository {
     ///   such as ``LoreError/Code/localModifications``.
     @discardableResult
     public func sync(
-        to revision: String? = nil,
+        to revision: RevisionSpecifier? = nil,
         discardingLocalChanges: Bool = false
     ) async throws -> SyncResult {
         try SyncEvent.result(
@@ -173,7 +173,7 @@ extension Repository {
     /// - Returns: A stream of the sync's progress, then its result.
     ///   The stream throws ``LoreError`` if the sync fails.
     public func syncUpdates(
-        to revision: String? = nil,
+        to revision: RevisionSpecifier? = nil,
         discardingLocalChanges: Bool = false
     ) -> AsyncThrowingStream<OperationUpdate<SyncProgress, SyncResult>, any Error> {
         updates(
@@ -188,11 +188,11 @@ extension Repository {
     }
 
     private func syncArguments(
-        revision: String?,
+        revision: RevisionSpecifier?,
         reset: Bool
     ) -> (UnsafeMutablePointer<lore_revision_sync_args_t>, Arena) -> Void {
         { arguments, arena in
-            arguments.pointee.revision = arena.string(revision)
+            arguments.pointee.revision = arena.string(revision?.rawValue)
             arguments.pointee.reset = UInt8(reset)
         }
     }
@@ -200,9 +200,9 @@ extension Repository {
 
 /// An event of a push.
 private enum PushEvent: Sendable {
-    case begin(remote: String, branch: String, revisionCount: UInt64, wasAlreadyPushed: Bool)
+    case begin(remote: String, branch: String, revisionCount: Int, wasAlreadyPushed: Bool)
     case progress(PushProgress)
-    case revisionPushed(RevisionID?, number: UInt64)
+    case revisionPushed(RevisionID?, number: Int)
 
     init?(_ event: UnsafePointer<lore_event_t>) {
         switch event.pointee.tag {
@@ -216,24 +216,24 @@ private enum PushEvent: Sendable {
             self = .begin(
                 remote: String(data.remote),
                 branch: String(data.branch_name),
-                revisionCount: data.local_history,
+                revisionCount: Int(clamping: data.local_history),
                 wasAlreadyPushed: Bool(data.flag_already_pushed)
             )
         case LORE_EVENT_BRANCH_PUSH_FRAGMENT_PROGRESS.rawValue:
             let data = event.pointee.branch_push_fragment_progress
             self = .progress(
                 PushProgress(
-                    fragmentsTransferred: data.complete,
-                    fragmentCount: data.count,
-                    bytesTransferred: data.bytes_transferred,
-                    bytesTotal: data.bytes_total
+                    fragmentsTransferred: Int(clamping: data.complete),
+                    fragmentsToTransfer: Int(clamping: data.count),
+                    bytesTransferred: Int(clamping: data.bytes_transferred),
+                    bytesToTransfer: Int(clamping: data.bytes_total)
                 )
             )
         case LORE_EVENT_BRANCH_PUSH_REVISION_PUSH_END.rawValue:
             let data = event.pointee.branch_push_revision_push_end
             self = .revisionPushed(
                 RevisionID(data.new_remote_revision),
-                number: data.new_remote_revision_number
+                number: Int(clamping: data.new_remote_revision_number)
             )
         default:
             return nil
@@ -278,7 +278,7 @@ private enum SyncEvent: Sendable {
             self = .target(
                 SyncResult(
                     revision: RevisionID(data.target_revision),
-                    revisionNumber: data.target_revision_number,
+                    revisionNumber: Int(clamping: data.target_revision_number),
                     isMerge: false,
                     hasConflicts: false
                 )
@@ -291,8 +291,8 @@ private enum SyncEvent: Sendable {
                     filesToUpdate: Int(data.file_update_total),
                     filesDeleted: Int(data.file_delete),
                     filesToDelete: Int(data.file_delete_total),
-                    bytesUpdated: data.bytes_update,
-                    bytesToUpdate: data.bytes_update_total,
+                    bytesWritten: Int(clamping: data.bytes_update),
+                    bytesToWrite: Int(clamping: data.bytes_update_total),
                     isDiscoveryComplete: Bool(data.discovery_complete)
                 )
             )
@@ -301,7 +301,7 @@ private enum SyncEvent: Sendable {
             self = .revision(
                 SyncResult(
                     revision: RevisionID(data.revision),
-                    revisionNumber: data.revision_number,
+                    revisionNumber: Int(clamping: data.revision_number),
                     isMerge: Bool(data.flag_merge),
                     hasConflicts: Bool(data.flag_conflict)
                 )
