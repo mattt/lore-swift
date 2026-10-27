@@ -85,6 +85,20 @@ import Testing
         #expect(try repository.read("a.txt") == "one\n")
     }
 
+    @Test func syncToCurrentRevision() async throws {
+        let repository = try await makeOfflineRepository()
+        try repository.write("one\n", to: "a.txt")
+        try await repository.stage(["a.txt"])
+        let revision = try await repository.commit(message: "One")
+
+        for specifier: String? in [nil, "@LATEST", "main@1"] {
+            let result = try await repository.sync(to: specifier)
+            #expect(result.revision == revision.id)
+            #expect(result.revisionNumber == 1)
+            #expect(!result.isMerge)
+        }
+    }
+
     @Test func syncUpdatesEndWithResult() async throws {
         let repository = try await makeOfflineRepository()
         try repository.write("one\n", to: "a.txt")

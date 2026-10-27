@@ -267,11 +267,22 @@ private enum PushEvent: Sendable {
 
 /// An event of a sync.
 private enum SyncEvent: Sendable {
+    case target(SyncResult)
     case progress(SyncProgress)
     case revision(SyncResult)
 
     init?(_ event: UnsafePointer<lore_event_t>) {
         switch event.pointee.tag {
+        case LORE_EVENT_REVISION_SYNC_TARGET.rawValue:
+            let data = event.pointee.revision_sync_target
+            self = .target(
+                SyncResult(
+                    revision: RevisionID(data.target_revision),
+                    revisionNumber: data.target_revision_number,
+                    isMerge: false,
+                    hasConflicts: false
+                )
+            )
         case LORE_EVENT_REVISION_SYNC_PROGRESS.rawValue:
             let data = event.pointee.revision_sync_progress
             self = .progress(
@@ -302,6 +313,11 @@ private enum SyncEvent: Sendable {
 
     @Sendable static func result(_ events: [SyncEvent]) throws -> SyncResult {
         for case .revision(let result) in events.reversed() {
+            return result
+        }
+        // A sync to the revision that the working directory already holds
+        // reports its target and no resulting revision.
+        for case .target(let result) in events.reversed() {
             return result
         }
         throw LoreError.missingEvent("a revision")
