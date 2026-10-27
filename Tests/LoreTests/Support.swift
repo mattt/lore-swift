@@ -21,6 +21,18 @@ let isolatedHome: String = {
     setenv("HOME", home, 1)
     return home
 }()
+
+/// The URL of the local server for integration tests.
+let serverURL = ProcessInfo.processInfo.environment["LORE_SERVER_URL"] ?? "lore://127.0.0.1:43537"
+
+extension Trait where Self == ConditionTrait {
+    /// Enables a test only when `LORE_INTEGRATION` is `1`,
+    /// for tests that need a local server.
+    static var integration: Self {
+        .enabled(if: ProcessInfo.processInfo.environment["LORE_INTEGRATION"] == "1", "Set LORE_INTEGRATION=1")
+    }
+}
+
 /// Returns a new, unique path for a repository in the scratch directory.
 func temporaryRepositoryPath(_ label: String = "repository") -> String {
     _ = isolatedHome

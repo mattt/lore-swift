@@ -68,6 +68,44 @@ import Testing
         }
         #expect(error?.code == .nothingStaged)
     }
+
+    @Test func syncToEarlierRevision() async throws {
+        let repository = try await makeOfflineRepository()
+        try repository.write("one\n", to: "a.txt")
+        try await repository.stage(["a.txt"])
+        let first = try await repository.commit(message: "One")
+        try repository.write("two\n", to: "a.txt")
+        try await repository.stage(["a.txt"])
+        try await repository.commit(message: "Two")
+
+        let result = try await repository.sync(to: first.id.description)
+        #expect(result.revision == first.id)
+        #expect(result.revisionNumber == 1)
+        #expect(!result.isMerge)
+        #expect(try repository.read("a.txt") == "one\n")
+    }
+
+    @Test func syncUpdatesEndWithResult() async throws {
+        let repository = try await makeOfflineRepository()
+        try repository.write("one\n", to: "a.txt")
+        try await repository.stage(["a.txt"])
+        try await repository.commit(message: "One")
+        try repository.write("two\n", to: "a.txt")
+        try await repository.stage(["a.txt"])
+        try await repository.commit(message: "Two")
+
+        var updates: [OperationUpdate<SyncProgress, SyncResult>] = []
+        for try await update in repository.syncUpdates(to: "main@1") {
+            updates.append(update)
+        }
+        guard case .completed(let result) = updates.last else {
+            Issue.record("Expected a result, got \(updates)")
+            return
+        }
+        #expect(result.revisionNumber == 1)
+        #expect(try repository.read("a.txt") == "one\n")
+    }
+
     @Test func operationFinishesWhenTaskIsCancelled() async throws {
         let repository = try await makeOfflineRepository()
         try repository.write("hello\n", to: "a.txt")
