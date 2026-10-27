@@ -87,15 +87,15 @@ extension LoreError.Code {
     /// from the ranges of the Lore error registry.
     public var category: LoreError.Category {
         switch rawValue {
-        case 3...15: .invalidInput
-        case 16...27: .authentication
-        case 28...39: .connectivity
-        case 40...55: .repositoryState
-        case 56...63: .alreadyExists
-        case 79...99: .notFound
-        case 110...117: .configuration
-        case 118...125: .resourceLimit
-        case 193...200: .lifecycle
+        case 3 ... 15: .invalidInput
+        case 16 ... 27: .authentication
+        case 28 ... 39: .connectivity
+        case 40 ... 55: .repositoryState
+        case 56 ... 63: .alreadyExists
+        case 79 ... 99: .notFound
+        case 110 ... 117: .configuration
+        case 118 ... 125: .resourceLimit
+        case 193 ... 200: .lifecycle
         default: .other
         }
     }
