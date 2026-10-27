@@ -76,10 +76,13 @@ extension Repository {
     ///     instead of the files that `paths` depend on.
     ///   - tags: Tags to filter the dependencies by,
     ///     or an empty array for every dependency.
-    ///   - depthLimit: The maximum depth of a recursive listing,
+    ///   - depthLimit: The number of levels that a recursive listing follows,
+    ///     such as 1 for direct dependencies only,
     ///     or `nil` for no limit.
     /// - Returns: The dependencies, grouped by file in the order of `paths`.
-    /// - Throws: ``LoreError`` if the library can't list the dependencies.
+    /// - Throws: ``LoreError`` if the library can't list the dependencies,
+    ///   or with ``LoreError/Code/invalidArguments``
+    ///   if `depthLimit` is less than 1.
     public func dependencies(
         of paths: [String],
         revision: String? = nil,
@@ -88,6 +91,13 @@ extension Repository {
         tags: [String] = [],
         depthLimit: Int? = nil
     ) async throws -> [Dependency] {
+        // The library reads a limit of 0 as no limit.
+        if let depthLimit, depthLimit < 1 {
+            throw LoreError(
+                code: .invalidArguments,
+                message: "The depth limit must be at least 1, not \(depthLimit)."
+            )
+        }
         let events = try await perform(
             lore_file_dependency_list_async,
             configure: { (arguments: UnsafeMutablePointer<lore_file_dependency_list_args_t>, arena) in

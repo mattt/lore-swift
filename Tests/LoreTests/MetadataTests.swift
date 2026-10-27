@@ -88,7 +88,18 @@ import Testing
         let dependents = try await repository.dependencies(of: ["texture.txt"], dependents: true)
         #expect(dependents.map(\.dependency) == ["mesh.txt"])
 
+        let limited = try await repository.dependencies(of: ["scene.txt"], recursive: true, depthLimit: 1)
+        #expect(limited.map(\.dependency) == ["mesh.txt"])
+
         let tagged = try await repository.dependencies(of: ["scene.txt", "mesh.txt"], tags: ["geometry"])
         #expect(tagged.map(\.dependency) == ["mesh.txt"])
+    }
+
+    @Test func depthLimitMustBePositive() async throws {
+        let repository = try await makeOfflineRepository()
+        let error = await #expect(throws: LoreError.self) {
+            try await repository.dependencies(of: ["a.txt"], recursive: true, depthLimit: 0)
+        }
+        #expect(error?.code == .invalidArguments)
     }
 }
