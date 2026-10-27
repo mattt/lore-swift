@@ -121,4 +121,26 @@ import Testing
         try await clone.switchBranch(to: "feature")
         #expect(try clone.read("a.txt") == "feature\n")
     }
+
+    @Test func lockAndUnlock() async throws {
+        let (repository, _) = try await makePublishedRepository()
+
+        let lock = try await repository.lock(["a.txt"])
+        #expect(lock.acquired == ["a.txt"])
+        #expect(lock.alreadyOwned.isEmpty)
+
+        let again = try await repository.lock(["a.txt"])
+        #expect(again.acquired.isEmpty)
+        #expect(again.alreadyOwned == ["a.txt"])
+
+        let status = try await repository.locks(on: ["a.txt"])
+        #expect(status.map(\.path) == ["a.txt"])
+        let query = try await repository.locks()
+        #expect(query.map(\.path) == ["a.txt"])
+        #expect(query.first?.branchID != nil)
+
+        #expect(try await repository.unlock(["a.txt"]) == ["a.txt"])
+        #expect(try await repository.unlock(["a.txt"]).isEmpty)
+        #expect(try await repository.locks().isEmpty)
+    }
 }

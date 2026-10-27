@@ -119,4 +119,15 @@ import Testing
         let revision = try await task.value
         #expect(revision.number == 1)
     }
+
+    @Test func lockingNeedsAServer() async throws {
+        let repository = try await makeOfflineRepository()
+        try repository.write("hello\n", to: "a.txt")
+        try await repository.stage(["a.txt"])
+        try await repository.commit(message: "First")
+        let error = await #expect(throws: LoreError.self) {
+            try await repository.lock(["a.txt"])
+        }
+        #expect(error?.code == .noRemote)
+    }
 }
