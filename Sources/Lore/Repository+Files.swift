@@ -43,7 +43,12 @@ public struct FileInfo: Sendable, Hashable {
     /// A Boolean value that indicates whether the entry was deleted.
     public var isDeleted: Bool
 
-    /// A Boolean value that indicates whether the entry is in conflict.
+    /// A Boolean value that indicates whether the library reports
+    /// the entry as in conflict.
+    ///
+    /// Lore 0.11.0 reports `false` for the files of a merge in progress,
+    /// including files whose conflicts aren't resolved;
+    /// ``FileStatus/isConflicted`` reports those conflicts.
     public var isConflicted: Bool
 }
 
@@ -255,18 +260,72 @@ extension Repository {
                 arguments.pointee.revision = arena.string(revision?.rawValue)
                 arguments.pointee.purge = UInt8(deletingUntrackedFiles)
             },
-            transform: { event -> FileChange? in
-                guard event.pointee.tag == LORE_EVENT_FILE_RESET_FILE.rawValue else {
-                    return nil
-                }
-                let data = event.pointee.file_reset_file
-                let previousPath = String(data.from_path)
-                return FileChange(
-                    path: String(data.path),
-                    previousPath: previousPath.isEmpty ? nil : previousPath,
-                    action: FileAction(rawValue: data.action.rawValue)
-                )
-            }
+            transform: Self.resetChange
+        )
+    }
+
+    /// Replaces files in the working directory with their content
+    /// at the last merge from another branch into the current branch,
+    /// discarding local changes.
+    ///
+    /// The other branch can be one that the current branch was created from,
+    /// directly or through other branches.
+    /// If the current branch has no merge from it,
+    /// the files get their content at the revision of that branch
+    /// that the current branch descends from.
+    ///
+    /// For a directory path, such as `"."`,
+    /// Lore 0.11.0 resets the files under it to their content
+    /// at that revision instead of the content of the merge.
+    /// Pass the paths of files to restore the content of the merge.
+    ///
+    /// - Parameters:
+    ///   - paths: The paths to reset, relative to the repository directory.
+    ///   - branch: The name of the branch that the current branch merged from.
+    ///   - side: The version of each file to restore:
+    ///     the content that the merge committed,
+    ///     or the version from either side of the merge.
+    ///   - deletingUntrackedFiles: Whether to delete the files under `paths`
+    ///     that the repository doesn't track.
+    /// - Returns: The files that were reset.
+    /// - Throws: ``LoreError`` if the library can't reset the files,
+    ///   such as ``LoreError/Code/branchNotFound``
+    ///   for a branch that doesn't exist or for the current branch.
+    @discardableResult
+    public func reset(
+        _ paths: [String],
+        toLastMergeFrom branch: String,
+        keeping side: MergeSide = .merged,
+        deletingUntrackedFiles: Bool = false
+    ) async throws -> [FileChange] {
+        try await perform(
+            lore_file_reset_to_last_merged_async,
+            configure: { (arguments: UnsafeMutablePointer<lore_file_reset_to_last_merged_args_t>, arena) in
+                arguments.pointee.paths = arena.strings(paths)
+                arguments.pointee.branch = arena.string(branch)
+                arguments.pointee.purge = UInt8(deletingUntrackedFiles)
+                arguments.pointee.merge_side =
+                    switch side {
+                    case .merged: 0
+                    case .mine: 1
+                    case .theirs: 2
+                    }
+            },
+            transform: Self.resetChange
+        )
+    }
+
+    /// Converts an event of a file reset.
+    @Sendable private static func resetChange(_ event: UnsafePointer<lore_event_t>) -> FileChange? {
+        guard event.pointee.tag == LORE_EVENT_FILE_RESET_FILE.rawValue else {
+            return nil
+        }
+        let data = event.pointee.file_reset_file
+        let previousPath = String(data.from_path)
+        return FileChange(
+            path: String(data.path),
+            previousPath: previousPath.isEmpty ? nil : previousPath,
+            action: FileAction(rawValue: data.action.rawValue)
         )
     }
 }
