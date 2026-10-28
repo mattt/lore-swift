@@ -108,8 +108,21 @@ public struct FileStatus: Sendable, Hashable {
     /// from its recorded state.
     public var isDirty: Bool
 
-    /// A Boolean value that indicates whether the file is in conflict.
+    /// A Boolean value that indicates whether the change comes from
+    /// the merge, revert, or cherry-pick in progress.
+    public var isMerged: Bool
+
+    /// A Boolean value that indicates whether the file has a conflict
+    /// that isn't resolved.
     public var isConflicted: Bool
+
+    /// The version of the file that resolves its conflict,
+    /// or `nil` if the file has no conflict or its conflict isn't resolved.
+    ///
+    /// A file that both sides of a merge changed in different places,
+    /// and that the library merged automatically,
+    /// reports ``MergeSide/merged``.
+    public var conflictResolution: MergeSide?
 }
 
 extension Repository {
@@ -197,11 +210,30 @@ private enum StatusEvent: Sendable {
                     kind: NodeKind(rawValue: data.type.rawValue),
                     isStaged: Bool(data.flag_staged),
                     isDirty: Bool(data.flag_dirty),
-                    isConflicted: Bool(data.flag_conflict)
+                    isMerged: Bool(data.flag_merged),
+                    isConflicted: Bool(data.flag_conflict_unresolved),
+                    conflictResolution: MergeSide(data)
                 )
             )
         default:
             return nil
+        }
+    }
+}
+
+extension MergeSide {
+    /// Reads how a status entry's conflict is resolved,
+    /// returning `nil` for no conflict or an unresolved one.
+    fileprivate init?(_ data: lore_repository_status_file_event_data_t) {
+        guard Bool(data.flag_conflict), !Bool(data.flag_conflict_unresolved) else {
+            return nil
+        }
+        if Bool(data.flag_conflict_mine) {
+            self = .mine
+        } else if Bool(data.flag_conflict_theirs) {
+            self = .theirs
+        } else {
+            self = .merged
         }
     }
 }

@@ -247,4 +247,83 @@ import Testing
         )
         #expect(try await clone.branches().map(\.name) == ["main", "main"])
     }
+
+    /// Returns a published repository and a clone of it.
+    private func makeClones() async throws -> (alice: Repository, bob: Repository) {
+        let (alice, url) = try await makePublishedRepository()
+        let bob = try await Repository.clone(
+            from: url,
+            to: temporaryRepositoryPath("clone"),
+            options: Repository.Options(identity: "bob@example.com")
+        )
+        return (alice, bob)
+    }
+
+    @Test(arguments: [MergeSide.merged, .mine, .theirs])
+    func syncMergesConflictingCommits(_ side: MergeSide) async throws {
+        let (alice, bob) = try await makeClones()
+        try alice.write("alice\n", to: "a.txt")
+        try await alice.stage(["a.txt"])
+        let aliceRevision = try await alice.commit(message: "Alice")
+        try await alice.push()
+        try bob.write("bob\n", to: "a.txt")
+        try await bob.stage(["a.txt"])
+        let bobRevision = try await bob.commit(message: "Bob")
+
+        let sync = try await bob.sync()
+        #expect(sync.isMerge)
+        #expect(sync.hasConflicts)
+        #expect(try bob.read("a.txt~mine") == "bob\n")
+        #expect(try bob.read("a.txt~theirs") == "alice\n")
+        let conflicted = try #require(try await bob.status(ofFile: "a.txt"))
+        #expect(conflicted.isMerged && conflicted.isConflicted)
+
+        // In a merge that a sync stages,
+        // Lore 0.11.0 resolves with the revision from the server as mine
+        // and the local revision as theirs.
+        let expected =
+            switch side {
+            case .merged: "alice and bob\n"
+            case .mine: "alice\n"
+            case .theirs: "bob\n"
+            }
+        if side == .merged {
+            try bob.write(expected, to: "a.txt")
+        }
+        #expect(try await bob.resolveConflicts(in: ["a.txt"], keeping: side) == ["a.txt"])
+        #expect(try bob.read("a.txt") == expected)
+        #expect(try await bob.status(ofFile: "a.txt")?.conflictResolution == side)
+        let merge = try await bob.commit(message: "Merge")
+        #expect(merge.parents == [aliceRevision.id, bobRevision.id])
+        try await bob.push()
+
+        try await alice.sync()
+        #expect(try alice.read("a.txt") == expected)
+        #expect(try await alice.revision().id == merge.id)
+    }
+
+    @Test func mergeABranchFromAnotherClone() async throws {
+        let (alice, bob) = try await makeClones()
+        try await alice.createBranch(named: "feature")
+        try await alice.switchBranch(to: "feature")
+        try alice.write("feature\n", to: "a.txt")
+        try alice.write("new\n", to: "n.txt")
+        try await alice.stage(["."])
+        let feature = try await alice.commit(message: "Feature")
+        try await alice.push()
+        try bob.write("bob\n", to: "a.txt")
+        try await bob.stage(["a.txt"])
+        let main = try await bob.commit(message: "Bob")
+        try await bob.push()
+
+        let result = try await bob.mergeBranch(named: "feature")
+        #expect(result.sourceRevision == feature.id)
+        #expect(result.conflicts == ["a.txt"])
+        #expect(try bob.read("n.txt") == "new\n")
+        try await bob.resolveConflicts(in: ["a.txt"], keeping: .theirs)
+        let merge = try await bob.commit(message: "Merge feature")
+        #expect(merge.parents == [main.id, feature.id])
+        #expect(try bob.read("a.txt") == "feature\n")
+        #expect(try await bob.push().revision == merge.id)
+    }
 }

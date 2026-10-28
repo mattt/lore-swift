@@ -133,8 +133,10 @@ extension Repository {
     /// - Parameter message: The commit message.
     /// - Returns: The new revision, with its metadata.
     /// - Throws: ``LoreError`` if the library can't commit,
-    ///   such as ``LoreError/Code/nothingStaged``
-    ///   or ``LoreError/Code/missingIdentity``.
+    ///   such as ``LoreError/Code/nothingStaged``,
+    ///   ``LoreError/Code/missingIdentity``,
+    ///   or ``LoreError/Code/conflict``
+    ///   when a file of a merge has a conflict that isn't resolved.
     @discardableResult
     public func commit(message: String) async throws -> Revision {
         let events = try await perform(
@@ -149,7 +151,7 @@ extension Repository {
 }
 
 /// An event of a commit.
-private enum CommitEvent: Sendable {
+enum CommitEvent: Sendable {
     case revision(Revision)
     case metadata(MetadataEntry)
 
