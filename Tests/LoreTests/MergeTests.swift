@@ -289,6 +289,16 @@ let conflictMarkers = "<<<<<<< ours\nmain\n||||||| original\nbase\n=======\nfeat
         #expect(merged.changes == [BranchDiff.Change(path: "a.txt", action: .keep, isAutomaticallyMerged: true)])
         #expect(merged.conflicts.isEmpty)
     }
+
+    @Test func mergeIntoNeedsAServer() async throws {
+        let (repository, _, _) = try await repositoryWithConflictingBranches()
+        try await repository.switchBranch(to: "feature")
+        let error = await #expect(throws: LoreError.self) {
+            try await repository.mergeBranch(into: "main", message: "Merge")
+        }
+        // Lore 0.11.0 reports this with the internal error code.
+        #expect(error?.code == .internal)
+    }
 }
 
 @Suite struct RevertTests {

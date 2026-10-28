@@ -176,6 +176,49 @@ extension Repository {
         )
     }
 
+    /// Merges the current branch into another branch,
+    /// committing the merge revision on the server.
+    ///
+    /// The merge needs a server.
+    /// The current branch must have been created from another branch,
+    /// and it must include the latest revision of the target branch on the server:
+    /// if the target branch has moved on,
+    /// merge it into the current branch with ``mergeBranch(named:message:committing:)``
+    /// and commit first.
+    /// The working directory stays on the current branch.
+    ///
+    /// - Parameters:
+    ///   - target: The name of the branch to merge into.
+    ///   - message: The commit message for the merge revision.
+    /// - Returns: The merge revision on the target branch, with its metadata.
+    /// - Throws: ``LoreError`` if the library can't merge,
+    ///   such as ``LoreError/Code/branchNotFound``.
+    ///   Lore 0.11.0 reports a target branch with newer revisions
+    ///   and an offline repository
+    ///   with ``LoreError/Code/internal``.
+    @discardableResult
+    public func mergeBranch(into target: String, message: String) async throws -> Revision {
+        let revisions = try await perform(
+            lore_branch_merge_into_async,
+            configure: { (arguments: UnsafeMutablePointer<lore_branch_merge_into_args_t>, arena) in
+                arguments.pointee.branch = arena.string(target)
+                arguments.pointee.message = arena.string(message)
+            },
+            transform: { event -> RevisionID? in
+                guard event.pointee.tag == LORE_EVENT_BRANCH_MERGE_INTO_REVISION.rawValue else {
+                    return nil
+                }
+                return RevisionID(event.pointee.branch_merge_into_revision.revision)
+            }
+        )
+        guard let id = revisions.last else {
+            throw LoreError.missingEvent("a revision")
+        }
+        // The merge reports the new revision's hash and number,
+        // but not its parents or metadata.
+        return try await revision(.id(id))
+    }
+
     /// Applies the inverse of a revision's changes to the current revision.
     ///
     /// A revert works like a merge:

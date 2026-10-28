@@ -332,4 +332,34 @@ import Testing
         #expect(try bob.read("a.txt") == "feature\n")
         #expect(try await bob.push().revision == merge.id)
     }
+
+    @Test func mergeIntoAnotherBranch() async throws {
+        let (alice, bob) = try await makeClones()
+        try await alice.createBranch(named: "feature")
+        try await alice.switchBranch(to: "feature")
+        try alice.write("feature\n", to: "a.txt")
+        try await alice.stage(["a.txt"])
+        let feature = try await alice.commit(message: "Feature")
+        let main = try await alice.revision("main@LATEST")
+
+        let merge = try await alice.mergeBranch(into: "main", message: "Merge feature into main")
+        #expect(merge.parents == [main.id, feature.id])
+        #expect(merge.message == "Merge feature into main")
+        #expect(merge.metadata["merged-by"] == .string("alice@example.com"))
+        #expect(merge.branchID == (try await bob.status().branchID))
+        #expect(try await alice.status().branch == "feature")
+
+        try await bob.sync()
+        #expect(try bob.read("a.txt") == "feature\n")
+        #expect(try await bob.revision().id == merge.id)
+
+        try bob.write("bob\n", to: "a.txt")
+        try await bob.stage(["a.txt"])
+        try await bob.commit(message: "Bob")
+        try await bob.push()
+        let error = await #expect(throws: LoreError.self) {
+            try await alice.mergeBranch(into: "main", message: "Merge again")
+        }
+        #expect(error?.code == .internal)
+    }
 }
