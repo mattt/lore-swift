@@ -23,7 +23,7 @@ dependencies: [
 ]
 ```
 
-And add the `Lore` product to your target:
+Add the `Lore` product to your target:
 
 ```swift
 .target(
@@ -33,9 +33,6 @@ And add the `Lore` product to your target:
     ]
 )
 ```
-
-SwiftPM downloads the Lore C library as an XCFramework
-from the [releases](https://github.com/mattt/lore-swift/releases) of this repository.
 
 ## Usage
 
@@ -52,9 +49,8 @@ let repository = try await Repository.create(
 ```
 
 The `name` is the URL of the repository on a server.
-To work without a server,
-set `isOffline` in the options;
-the `name` then names the repository.
+To work without a server, set `isOffline` in the options
+and use a repository name instead of a URL.
 Paths are relative to the repository directory.
 
 ### Staging and committing
@@ -85,9 +81,7 @@ let clone = try await Repository.clone(
 try await clone.sync()
 ```
 
-Clone, push, and sync also have `…Updates` variants
-that return an `AsyncThrowingStream` of progress reports
-and then the result:
+Clone, push, and sync have `…Updates` variants that stream progress and the result:
 
 ```swift
 for try await update in repository.pushUpdates() {
@@ -106,9 +100,9 @@ but not the operation.
 
 ### Naming revisions
 
-Methods that take a revision take a `RevisionSpecifier`.
-Write one as a string literal in any form that the `lore` command-line tool accepts,
-or use the static methods:
+Methods that take a `RevisionSpecifier` accept a string literal
+in the syntax of the `lore` command-line tool,
+or a specifier from a static method:
 
 ```swift
 try await repository.sync(to: "main@2")
@@ -130,8 +124,7 @@ for branch in try await repository.branches() {
 
 ### Adding file metadata and dependencies
 
-Metadata and dependencies become part of a file's staged state,
-and the next commit records them.
+Metadata and dependencies are staged for the next commit.
 
 ```swift
 try await repository.setMetadata(
@@ -158,8 +151,7 @@ try await repository.unlock(["hero.png"])
 
 ### Handling errors
 
-Failures throw `LoreError`.
-Match on its code to handle a specific failure:
+Failures throw `LoreError`:
 
 ```swift
 do {
@@ -200,7 +192,7 @@ so it must return promptly.
 | File dependencies | `lore_file_dependency_add_async`, `lore_file_dependency_list_async` | `addDependencies(_:to:tags:allowingCycles:)`, `dependencies(of:revision:recursive:tags:depthLimit:)`, `dependents(of:revision:recursive:tags:depthLimit:)` |
 | Locks | `lore_lock_file_acquire_async`, `lore_lock_file_release_async`, `lore_lock_file_status_async`, `lore_lock_file_query_async` | `lock(_:branch:)`, `unlock(_:branch:)`, `locks(on:branch:)`, `locks(branch:owner:path:)` |
 
-The binding doesn't yet cover the rest of the C API,
+The binding doesn't cover the rest of the C API,
 such as authentication, merges, history, links, layers, and the storage API.
 `setMetadata(_:of:)` can't set binary or address values.
 
@@ -223,8 +215,6 @@ $ Scripts/run-integration-tests.sh
 
 ### Updating the Lore library
 
-To move the package to a new Lore release:
-
 1. Set `LORE_VERSION` and the SHA-256 digests
    in `Scripts/build-xcframework.sh` and `Scripts/fetch-loreserver.sh`.
 2. Run `Scripts/build-xcframework.sh`,
@@ -244,7 +234,6 @@ $ swift format -i -r Sources Tests Package.swift
 
 ## License
 
-This project is available under the MIT license.
-See the LICENSE file for more info.
+This project is available under the [MIT license](LICENSE.md).
 
 The Lore library is available under the MIT license from Epic Games.
