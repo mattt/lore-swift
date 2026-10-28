@@ -55,6 +55,25 @@ import Testing
         }
     }
 
+    @Test func listAndClearMetadata() async throws {
+        let repository = try await repositoryWithStagedFile()
+        let values: [String: MetadataValue] = ["kind": .string("texture"), "size": .number(42)]
+        try await repository.setMetadata(values, of: ["a.txt"])
+        #expect(try await repository.metadata(of: "a.txt") == values)
+        #expect(try await repository.metadata(of: "b.txt").isEmpty)
+        try await repository.commit(message: "Second")
+        #expect(try await repository.metadata(of: "a.txt", revision: "main@2") == values)
+        #expect(try await repository.metadata(of: "a.txt", revision: "main@1").isEmpty)
+
+        try repository.write("hello, once more\n", to: "a.txt")
+        try await repository.stage(["a.txt"])
+        try await repository.clearMetadata(of: "a.txt")
+        #expect(try await repository.metadata(of: "a.txt").isEmpty)
+        try await repository.commit(message: "Third")
+        #expect(try await repository.metadata(of: "a.txt", revision: "main@3").isEmpty)
+        #expect(try await repository.metadata(of: "a.txt", revision: "main@2") == values)
+    }
+
     @Test(arguments: [MetadataValue.binary([0xff, 0xfe]), .address(hash: [], context: [])])
     func refusesValuesTheBindingCannotSet(value: MetadataValue) async throws {
         let repository = try await repositoryWithStagedFile()
@@ -96,6 +115,25 @@ import Testing
 
         let tagged = try await repository.dependencies(of: ["scene.txt", "mesh.txt"], tags: ["geometry"])
         #expect(tagged.map(\.dependency) == ["mesh.txt"])
+    }
+
+    @Test func removeDependencies() async throws {
+        let repository = try await makeOfflineRepository()
+        for file in ["scene.txt", "mesh.txt", "texture.txt"] {
+            try repository.write(file, to: file)
+        }
+        try await repository.stage(["."])
+        try await repository.addDependencies(["mesh.txt", "texture.txt"], to: "scene.txt", tags: ["asset"])
+        try await repository.commit(message: "Scene")
+
+        try repository.write("scene, again", to: "scene.txt")
+        try await repository.stage(["scene.txt"])
+        #expect(try await repository.removeDependencies(["mesh.txt"], from: "scene.txt") == 1)
+        #expect(try await repository.dependencies(of: ["scene.txt"]).map(\.dependency) == ["texture.txt"])
+        #expect(try await repository.removeDependencies(["mesh.txt"], from: "scene.txt") == 0)
+        try await repository.commit(message: "Remove mesh")
+        #expect(try await repository.dependencies(of: ["scene.txt"], revision: "main@1").count == 2)
+        #expect(try await repository.dependencies(of: ["scene.txt"], revision: "main@2").count == 1)
     }
 
     @Test func depthLimitMustBePositive() async throws {

@@ -1,6 +1,6 @@
 import CLore
 
-/// A typed value stored as file metadata.
+/// A typed value stored as metadata of a file, revision, branch, or repository.
 ///
 /// Corresponds to `lore_metadata_t` and `lore_metadata_type_t`.
 public enum MetadataValue: Sendable, Hashable {
@@ -12,7 +12,7 @@ public enum MetadataValue: Sendable, Hashable {
     case boolean(Bool)
     /// Raw bytes of any length.
     ///
-    /// ``Repository/setMetadata(_:of:)`` can't set a binary value:
+    /// The methods that set metadata can't set a binary value:
     /// in Lore 0.11.0,
     /// `lore_file_metadata_set` reads the text of a binary value
     /// as the path of a file,
@@ -58,7 +58,7 @@ extension MetadataValue {
         }
     }
 
-    /// The type and text that `lore_file_metadata_set` takes for the value,
+    /// The type and text that the library's metadata set functions take for the value,
     /// or `nil` if the binding can't express the value as text.
     var encoded: (type: lore_metadata_type_t, text: String)? {
         switch self {
@@ -80,6 +80,76 @@ extension MetadataValue {
     }
 }
 
+/// Metadata values as the parallel arrays of keys, texts, and types
+/// that the library's metadata set functions take.
+struct EncodedMetadata {
+    var keys: [String] = []
+    var texts: [String] = []
+    var types: [lore_metadata_type_t] = []
+
+    /// Encodes values in the order of their keys.
+    ///
+    /// - Throws: ``LoreError`` with ``LoreError/Code/notSupported``
+    ///   for a value that the binding can't express as text.
+    init(_ values: [String: MetadataValue]) throws {
+        for (key, value) in values.sorted(by: { $0.key < $1.key }) {
+            guard let encoded = value.encoded else {
+                throw LoreError(
+                    code: .notSupported,
+                    message: "The binding can't set the metadata value for \(key)."
+                )
+            }
+            keys.append(key)
+            texts.append(encoded.text)
+            types.append(encoded.type)
+        }
+    }
+
+    /// Copies the types into a library array.
+    func formats(in arena: Arena) -> lore_metadata_type_array_t {
+        let formats = arena.array(types)
+        return lore_metadata_type_array_t(ptr: formats.pointer, count: UInt(formats.count))
+    }
+}
+
+/// A key and value that a `LORE_EVENT_METADATA` event reports.
+struct MetadataEntry: Sendable {
+    var key: String
+    var value: MetadataValue
+
+    init?(_ event: UnsafePointer<lore_event_t>) {
+        guard event.pointee.tag == LORE_EVENT_METADATA.rawValue,
+            let value = MetadataValue(event.pointee.metadata.value)
+        else {
+            return nil
+        }
+        self.key = String(event.pointee.metadata.key)
+        self.value = value
+    }
+}
+
+extension Dictionary where Key == String, Value == MetadataValue {
+    /// Collects metadata entries, keeping the last value for a repeated key.
+    init(_ entries: some Sequence<MetadataEntry>) {
+        self.init(entries.map { ($0.key, $0.value) }, uniquingKeysWith: { _, last in last })
+    }
+}
+
+extension Repository {
+    /// Performs an operation that reports metadata
+    /// and returns the entries it reports.
+    func metadataEntries<Arguments>(
+        _ function: (
+            UnsafePointer<lore_global_args_t>?,
+            UnsafePointer<Arguments>?,
+            lore_event_callback_config_t
+        ) -> Void,
+        configure: (UnsafeMutablePointer<Arguments>, Arena) -> Void
+    ) async throws -> [String: MetadataValue] {
+        Dictionary(try await perform(function, configure: configure, transform: MetadataEntry.init))
+    }
+}
+
 extension Repository {
     /// Returns the metadata value of a file for a key.
     ///
@@ -95,21 +165,36 @@ extension Repository {
         of path: String,
         revision: RevisionSpecifier? = nil
     ) async throws -> MetadataValue? {
-        let values = try await perform(
+        let values = try await metadataEntries(
             lore_file_metadata_get_async,
             configure: { (arguments: UnsafeMutablePointer<lore_file_metadata_get_args_t>, arena) in
                 arguments.pointee.key = arena.string(key)
                 arguments.pointee.path = arena.string(path)
                 arguments.pointee.revision = arena.string(revision?.rawValue)
-            },
-            transform: { event -> MetadataValue? in
-                guard event.pointee.tag == LORE_EVENT_METADATA.rawValue else {
-                    return nil
-                }
-                return MetadataValue(event.pointee.metadata.value)
             }
         )
-        return values.last
+        return values[key]
+    }
+
+    /// Returns the metadata of a file.
+    ///
+    /// - Parameters:
+    ///   - path: The path of the file, relative to the repository directory.
+    ///   - revision: The revision to read,
+    ///     or `nil` for the current state of the working directory.
+    /// - Returns: The metadata values, by key.
+    /// - Throws: ``LoreError`` if the library can't read the metadata.
+    public func metadata(
+        of path: String,
+        revision: RevisionSpecifier? = nil
+    ) async throws -> [String: MetadataValue] {
+        try await metadataEntries(
+            lore_file_metadata_list_async,
+            configure: { (arguments: UnsafeMutablePointer<lore_file_metadata_list_args_t>, arena) in
+                arguments.pointee.path = arena.string(path)
+                arguments.pointee.revision = arena.string(revision?.rawValue)
+            }
+        )
     }
 
     /// Sets metadata values on files.
@@ -125,31 +210,17 @@ extension Repository {
     ///   or ``MetadataValue/address(hash:context:)`` value,
     ///   which the binding can't set.
     public func setMetadata(_ values: [String: MetadataValue], of paths: [String]) async throws {
-        let entries = values.sorted { $0.key < $1.key }
-        var keys: [String] = []
-        var texts: [String] = []
-        var types: [lore_metadata_type_t] = []
-        for (key, value) in entries {
-            guard let encoded = value.encoded else {
-                throw LoreError(
-                    code: .notSupported,
-                    message: "The binding can't set the metadata value for \(key)."
-                )
-            }
-            keys.append(key)
-            texts.append(encoded.text)
-            types.append(encoded.type)
-        }
+        let metadata = try EncodedMetadata(values)
         // The library reads the keys, values, and types as flat arrays,
         // taking the number of entries for each path from `entries`.
-        let count = UInt32(entries.count)
+        let count = UInt32(metadata.keys.count)
         _ = try await perform(
             lore_file_metadata_set_async,
             configure: { (arguments: UnsafeMutablePointer<lore_file_metadata_set_args_t>, arena) in
                 arguments.pointee.paths = arena.strings(paths)
-                arguments.pointee.keys = arena.strings(paths.flatMap { _ in keys })
-                arguments.pointee.values = arena.strings(paths.flatMap { _ in texts })
-                let formats = arena.array(paths.flatMap { _ in types })
+                arguments.pointee.keys = arena.strings(paths.flatMap { _ in metadata.keys })
+                arguments.pointee.values = arena.strings(paths.flatMap { _ in metadata.texts })
+                let formats = arena.array(paths.flatMap { _ in metadata.types })
                 arguments.pointee.formats = lore_metadata_type_array_t(
                     ptr: formats.pointer,
                     count: UInt(formats.count)
@@ -159,6 +230,22 @@ extension Repository {
                     ptr: counts.pointer,
                     count: UInt(counts.count)
                 )
+            },
+            transform: { _ -> Never? in nil }
+        )
+    }
+
+    /// Removes every metadata value from a file.
+    ///
+    /// The removal becomes part of the file's staged state.
+    ///
+    /// - Parameter path: The path of the file, relative to the repository directory.
+    /// - Throws: ``LoreError`` if the library can't clear the metadata.
+    public func clearMetadata(of path: String) async throws {
+        _ = try await perform(
+            lore_file_metadata_clear_async,
+            configure: { (arguments: UnsafeMutablePointer<lore_file_metadata_clear_args_t>, arena) in
+                arguments.pointee.path = arena.string(path)
             },
             transform: { _ -> Never? in nil }
         )
