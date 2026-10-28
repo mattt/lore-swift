@@ -111,6 +111,19 @@ try await repository.sync(to: .latest(on: "feature"))
 try await repository.sync(to: .id(revision.id))
 ```
 
+### Reading history
+
+```swift
+for revision in try await repository.history(limit: 10) {
+    print(revision.number, revision.message ?? "", revision.creator ?? "")
+}
+
+let changes = try await repository.changes(from: "main@1", to: "main@2")
+for diff in try await repository.diff(of: ["hello.txt"], from: "main@1", contextLines: 3) {
+    print(diff.patch)
+}
+```
+
 ### Working with branches
 
 ```swift
@@ -122,9 +135,9 @@ for branch in try await repository.branches() {
 }
 ```
 
-### Adding file metadata and dependencies
+### Adding metadata and dependencies
 
-Metadata and dependencies are staged for the next commit.
+File metadata, revision metadata, and dependencies are staged for the next commit.
 
 ```swift
 try await repository.setMetadata(
@@ -132,6 +145,8 @@ try await repository.setMetadata(
     of: ["hero.png"]
 )
 let kind = try await repository.metadata(forKey: "kind", of: "hero.png")
+
+try await repository.setRevisionMetadata(["ticket": .string("ART-42")])
 
 try await repository.addDependencies(["hero.png"], to: "scene.usd")
 let dependencies = try await repository.dependencies(of: ["scene.usd"], recursive: true)
@@ -183,18 +198,24 @@ so it must return promptly.
 | Create | `lore_repository_create_async` | `Repository.create(at:name:description:options:)` |
 | Clone | `lore_repository_clone_async` | `Repository.clone(from:to:revision:options:)`, `cloneUpdates` |
 | Status | `lore_repository_status_async` | `status(of:scanning:)` |
-| Stage | `lore_file_stage_async` | `stage(_:scanning:)` |
-| Commit | `lore_revision_commit_async` | `commit(message:)` |
+| Repository | `lore_repository_info_async` | `info()` |
+| Repository metadata | `lore_repository_metadata_get_async`, `lore_repository_metadata_set_async`, `lore_repository_metadata_clear_async` | `repositoryMetadata()`, `repositoryMetadata(forKey:)`, `setRepositoryMetadata(_:)`, `clearRepositoryMetadata(keys:)` |
+| Stage | `lore_file_stage_async`, `lore_file_unstage_async`, `lore_file_reset_async` | `stage(_:scanning:)`, `unstage(_:)`, `reset(_:to:deletingUntrackedFiles:)` |
+| Commit | `lore_revision_commit_async`, `lore_revision_restore_async` | `commit(message:)`, `restore(message:)` |
 | Push | `lore_branch_push_async` | `push(branch:allowingFastForward:)`, `pushUpdates` |
 | Sync | `lore_revision_sync_async` | `sync(to:discardingLocalChanges:)`, `syncUpdates` |
-| Branches | `lore_branch_list_async`, `lore_branch_create_async`, `lore_branch_switch_async` | `branches(includingArchived:)`, `createBranch(named:category:)`, `switchBranch(to:revision:discardingLocalChanges:)` |
-| File metadata | `lore_file_metadata_get_async`, `lore_file_metadata_set_async` | `metadata(forKey:of:revision:)`, `setMetadata(_:of:)` |
-| File dependencies | `lore_file_dependency_add_async`, `lore_file_dependency_list_async` | `addDependencies(_:to:tags:allowingCycles:)`, `dependencies(of:revision:recursive:tags:depthLimit:)`, `dependents(of:revision:recursive:tags:depthLimit:)` |
+| Revisions | `lore_revision_history_async`, `lore_revision_info_async`, `lore_revision_diff_async` | `history(from:on:since:limit:stoppingAtBranchPoint:)`, `revision(_:)`, `changes(in:)`, `changes(from:to:paths:)` |
+| Revision metadata | `lore_revision_metadata_get_async`, `lore_revision_metadata_list_async`, `lore_revision_metadata_set_async`, `lore_revision_metadata_clear_async` | `revisionMetadata(forKey:of:)`, `revisionMetadata(of:)`, `setRevisionMetadata(_:)`, `clearRevisionMetadata()` |
+| Branches | `lore_branch_list_async`, `lore_branch_create_async`, `lore_branch_switch_async`, `lore_branch_info_async`, `lore_branch_archive_async`, `lore_branch_protect_async`, `lore_branch_unprotect_async`, `lore_branch_reset_async`, `lore_branch_latest_list_async` | `branches(includingArchived:)`, `createBranch(named:category:)`, `switchBranch(to:revision:discardingLocalChanges:)`, `branchInfo(named:)`, `archiveBranch(named:)`, `protectBranch(named:)`, `unprotectBranch(named:)`, `resetBranch(named:to:)`, `latestRevisions(on:limit:)` |
+| Branch metadata | `lore_branch_metadata_get_async`, `lore_branch_metadata_set_async`, `lore_branch_metadata_clear_async` | `branchMetadata(of:)`, `branchMetadata(forKey:of:)`, `setBranchMetadata(_:of:)`, `clearBranchMetadata(keys:of:)` |
+| Files | `lore_file_history_async`, `lore_file_info_async`, `lore_file_diff_async` | `history(of:from:on:limit:)`, `fileInfo(of:revision:)`, `diff(of:from:to:contextLines:ignoringTrailingWhitespace:ignoringWhitespaceChanges:)` |
+| File metadata | `lore_file_metadata_get_async`, `lore_file_metadata_list_async`, `lore_file_metadata_set_async`, `lore_file_metadata_clear_async` | `metadata(forKey:of:revision:)`, `metadata(of:revision:)`, `setMetadata(_:of:)`, `clearMetadata(of:)` |
+| File dependencies | `lore_file_dependency_add_async`, `lore_file_dependency_list_async`, `lore_file_dependency_remove_async` | `addDependencies(_:to:tags:allowingCycles:)`, `dependencies(of:revision:recursive:tags:depthLimit:)`, `dependents(of:revision:recursive:tags:depthLimit:)`, `removeDependencies(_:from:)` |
 | Locks | `lore_lock_file_acquire_async`, `lore_lock_file_release_async`, `lore_lock_file_status_async`, `lore_lock_file_query_async` | `lock(_:branch:)`, `unlock(_:branch:)`, `locks(on:branch:)`, `locks(branch:owner:path:)` |
 
 The binding doesn't cover the rest of the C API,
-such as authentication, merges, history, links, layers, and the storage API.
-`setMetadata(_:of:)` can't set binary or address values.
+such as authentication, merges, links, layers, and the storage API.
+The methods that set metadata can't set binary or address values.
 
 ## Development
 

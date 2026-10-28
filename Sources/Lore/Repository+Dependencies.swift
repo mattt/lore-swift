@@ -65,6 +65,44 @@ extension Repository {
         return counts.last ?? 0
     }
 
+    /// Removes the records that a file depends on other files.
+    ///
+    /// The removal becomes part of the file's staged state.
+    ///
+    /// - Parameters:
+    ///   - dependencies: The paths of the files that `path` no longer depends on,
+    ///     relative to the repository directory.
+    ///   - path: The path of the file that has the dependencies.
+    /// - Returns: The number of dependencies that the library removed.
+    /// - Throws: ``LoreError`` if the library can't remove the dependencies.
+    @discardableResult
+    public func removeDependencies(_ dependencies: [String], from path: String) async throws -> Int {
+        let counts = try await perform(
+            lore_file_dependency_remove_async,
+            configure: { (arguments: UnsafeMutablePointer<lore_file_dependency_remove_args_t>, arena) in
+                arguments.pointee.paths = arena.strings([path])
+                arguments.pointee.dependencies = arena.strings(dependencies)
+                let dependencyCounts = arena.array([UInt32(dependencies.count)])
+                arguments.pointee.dep_counts = lore_uint32_array_t(
+                    ptr: dependencyCounts.pointer,
+                    count: UInt(dependencyCounts.count)
+                )
+                let tagCounts = arena.array(dependencies.map { _ in UInt32(0) })
+                arguments.pointee.tag_counts = lore_uint32_array_t(
+                    ptr: tagCounts.pointer,
+                    count: UInt(tagCounts.count)
+                )
+            },
+            transform: { event -> Int? in
+                guard event.pointee.tag == LORE_EVENT_FILE_DEPENDENCY_REMOVE_END.rawValue else {
+                    return nil
+                }
+                return Int(clamping: event.pointee.file_dependency_remove_end.removed_count)
+            }
+        )
+        return counts.last ?? 0
+    }
+
     /// Lists the files that files depend on.
     ///
     /// - Parameters:

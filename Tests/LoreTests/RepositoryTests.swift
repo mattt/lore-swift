@@ -144,4 +144,36 @@ import Testing
         }
         #expect(error?.code == .noRemote)
     }
+
+    @Test func repositoryMetadataIncludesTheRepositoryRecord() async throws {
+        let repository = try await Repository.create(
+            at: temporaryRepositoryPath(),
+            name: "described",
+            description: "A test repository",
+            options: Repository.Options(identity: "test@example.com", isOffline: true)
+        )
+        let metadata = try await repository.repositoryMetadata()
+        #expect(metadata["name"] == .string("described"))
+        #expect(metadata["description"] == .string("A test repository"))
+        #expect(metadata["default-branch-name"] == .string("main"))
+        #expect(metadata["creator"] == .string("test@example.com"))
+        #expect(try await repository.repositoryMetadata(forKey: "name") == .string("described"))
+        #expect(try await repository.repositoryMetadata(forKey: "missing") == nil)
+    }
+
+    @Test func repositoryInfoAndMetadataChangesNeedAServer() async throws {
+        let repository = try await makeOfflineRepository()
+        let info = await #expect(throws: LoreError.self) {
+            try await repository.info()
+        }
+        #expect(info?.code == .noRemote)
+        let set = await #expect(throws: LoreError.self) {
+            try await repository.setRepositoryMetadata(["team": .string("tools")])
+        }
+        #expect(set?.code == .noRemote)
+        let clear = await #expect(throws: LoreError.self) {
+            try await repository.clearRepositoryMetadata()
+        }
+        #expect(clear?.code == .noRemote)
+    }
 }

@@ -104,3 +104,21 @@ import Testing
         #expect(MetadataValue.address(hash: [], context: []).encoded == nil)
     }
 }
+
+@Suite struct TimestampTests {
+    @Test func datesRoundUpToWholeMilliseconds() {
+        #expect(UInt64(timestampAtOrAfter: Date(timeIntervalSince1970: 0)) == 0)
+        #expect(UInt64(timestampAtOrAfter: Date(timeIntervalSince1970: 0.0001)) == 1)
+        #expect(UInt64(timestampAtOrAfter: Date(timeIntervalSince1970: 1.5)) == 1500)
+        #expect(UInt64(timestampAtOrAfter: Date(timeIntervalSince1970: -1)) == 0)
+        #expect(
+            UInt64(timestampAtOrAfter: Date(timeIntervalSince1970: 18_000_000_000_000_000))
+                == 18_000_000_000_000_000_000
+        )
+    }
+
+    @Test(arguments: [TimeInterval.infinity, -.infinity, .nan, 18_446_744_073_709_552])
+    func datesWithoutATimestamp(_ seconds: TimeInterval) {
+        #expect(UInt64(timestampAtOrAfter: Date(timeIntervalSince1970: seconds)) == nil)
+    }
+}
