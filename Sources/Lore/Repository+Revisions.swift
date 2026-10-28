@@ -227,7 +227,7 @@ extension Repository {
 
     /// Sets metadata values for the next commit.
     ///
-    /// The next ``commit(message:)`` records the values
+    /// The next ``commit(message:linkMessages:)`` records the values
     /// along with the metadata that Lore records for every revision.
     /// A commit still needs staged changes.
     ///

@@ -185,17 +185,22 @@ extension Repository {
 
     /// Returns information about a branch.
     ///
-    /// - Parameter name: The name of the branch,
-    ///   or `nil` for the current branch.
+    /// - Parameters:
+    ///   - name: The name of the branch,
+    ///     or `nil` for the current branch.
+    ///   - link: The path where a link is mounted,
+    ///     to read the branch of the linked repository,
+    ///     or `nil` to read the branch of this repository.
     /// - Returns: Information about the branch.
     /// - Throws: ``LoreError`` if the library can't read the branch,
     ///   such as ``LoreError/Code/notFound``
     ///   for a branch that doesn't exist or is archived.
-    public func branchInfo(named name: String? = nil) async throws -> BranchInfo {
+    public func branchInfo(named name: String? = nil, inLinkAt link: String? = nil) async throws -> BranchInfo {
         let branches = try await perform(
             lore_branch_info_async,
             configure: { (arguments: UnsafeMutablePointer<lore_branch_info_args_t>, arena) in
                 arguments.pointee.branch = arena.string(name)
+                arguments.pointee.link = arena.string(link)
             },
             transform: { event -> BranchInfo? in
                 guard event.pointee.tag == LORE_EVENT_BRANCH_INFO.rawValue else {
@@ -232,16 +237,30 @@ extension Repository {
     /// Unless the repository is offline,
     /// the branch is also archived on the server.
     ///
-    /// - Parameter name: The name of the branch.
+    /// - Parameters:
+    ///   - name: The name of the branch.
+    ///   - includingLinks: Whether to also archive the branch
+    ///     in every linked repository.
+    ///   - includingLayers: Whether to also archive the branch
+    ///     in the repository of every layer.
     /// - Throws: ``LoreError`` if the library can't archive the branch,
     ///   such as ``LoreError/Code/branchNotFound``.
     ///   The library refuses to archive the current branch
     ///   and reports that with ``LoreError/Code/branchNotFound``.
-    public func archiveBranch(named name: String) async throws {
+    ///   In Lore 0.11.0, `includingLinks` also fails
+    ///   with ``LoreError/Code/branchNotFound``
+    ///   for a branch that you never switched to.
+    public func archiveBranch(
+        named name: String,
+        includingLinks: Bool = false,
+        includingLayers: Bool = false
+    ) async throws {
         _ = try await perform(
             lore_branch_archive_async,
             configure: { (arguments: UnsafeMutablePointer<lore_branch_archive_args_t>, arena) in
                 arguments.pointee.branch = arena.string(name)
+                arguments.pointee.include_links = UInt8(includingLinks)
+                arguments.pointee.include_layers = UInt8(includingLayers)
             },
             transform: { _ -> Never? in nil }
         )

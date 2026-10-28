@@ -130,19 +130,38 @@ extension Repository {
     /// The new revision is local
     /// until you ``push(branch:allowingFastForward:)`` it.
     ///
-    /// - Parameter message: The commit message.
-    /// - Returns: The new revision, with its metadata.
+    /// Files staged in a linked repository or a layer
+    /// are committed as a revision of that repository first,
+    /// with the message for the link in `linkMessages`
+    /// or else `message`.
+    /// The new revision of this repository pins each link to its new revision.
+    /// If only files of layers are staged,
+    /// this repository gets no revision,
+    /// and the method returns the revision of the last layer that it commits,
+    /// without metadata.
+    ///
+    /// - Parameters:
+    ///   - message: The commit message.
+    ///   - linkMessages: Commit messages for linked repositories,
+    ///     by the path where each link is mounted.
+    ///     The library ignores the message for a link with nothing staged.
+    /// - Returns: The new revision, with its metadata unless it's a layer's revision.
     /// - Throws: ``LoreError`` if the library can't commit,
     ///   such as ``LoreError/Code/nothingStaged``,
     ///   ``LoreError/Code/missingIdentity``,
-    ///   or ``LoreError/Code/conflict``
-    ///   when a file of a merge has a conflict that isn't resolved.
+    ///   ``LoreError/Code/conflict``
+    ///   when a file of a merge has a conflict that isn't resolved,
+    ///   or ``LoreError/Code/invalidArguments``
+    ///   for a path in `linkMessages` that isn't a link.
     @discardableResult
-    public func commit(message: String) async throws -> Revision {
+    public func commit(message: String, linkMessages: [String: String] = [:]) async throws -> Revision {
         let events = try await perform(
             lore_revision_commit_async,
             configure: { (arguments: UnsafeMutablePointer<lore_revision_commit_args_t>, arena) in
                 arguments.pointee.message = arena.string(message)
+                let links = linkMessages.sorted { $0.key < $1.key }
+                arguments.pointee.link_paths = arena.strings(links.map(\.key))
+                arguments.pointee.link_messages = arena.strings(links.map(\.value))
             },
             transform: CommitEvent.init
         )

@@ -85,7 +85,7 @@ extension Repository {
     ///
     /// With `mergingAutomatically` set to `true`,
     /// the conflicts are those that
-    /// ``mergeBranch(named:message:committing:)`` reports
+    /// ``mergeBranch(named:message:committing:linkMessages:includingLinks:)`` reports
     /// when it merges `source` into `target`.
     ///
     /// - Parameters:
@@ -141,7 +141,7 @@ extension Repository {
     /// If no file is in conflict and `committing` is `true`,
     /// the merge commits a revision whose parents are the current revision
     /// and the merged revision.
-    /// Otherwise the merge stays in progress until you ``commit(message:)``
+    /// Otherwise the merge stays in progress until you ``commit(message:linkMessages:)``
     /// or ``abortMerge()``.
     ///
     /// For each file in conflict,
@@ -151,12 +151,22 @@ extension Repository {
     /// Resolve the conflicts with ``resolveConflicts(in:keeping:)``
     /// before you commit.
     ///
+    /// The merge also merges the matching branch
+    /// of each linked repository that follows this repository's branches,
+    /// and a merge revision that it commits there
+    /// has the message for the link in `linkMessages`.
+    ///
     /// - Parameters:
     ///   - name: The name of the branch to merge.
     ///   - message: The commit message for the merge revision
     ///     if the merge commits,
     ///     or `nil` for an empty message.
     ///   - committing: Whether to commit the merge when no file is in conflict.
+    ///   - linkMessages: Commit messages for the merge revisions
+    ///     of linked repositories,
+    ///     by the path where each link is mounted.
+    ///   - includingLinks: Whether to merge linked repositories.
+    ///     If `false`, each link keeps the revision that it's pinned to.
     /// - Returns: The result of the merge.
     /// - Throws: ``LoreError`` if the library can't merge,
     ///   such as ``LoreError/Code/branchNotFound``.
@@ -167,7 +177,9 @@ extension Repository {
     public func mergeBranch(
         named name: String,
         message: String? = nil,
-        committing: Bool = true
+        committing: Bool = true,
+        linkMessages: [String: String] = [:],
+        includingLinks: Bool = true
     ) async throws -> MergeResult {
         try MergeEvent.result(
             try await perform(
@@ -176,6 +188,10 @@ extension Repository {
                     arguments.pointee.branch = arena.string(name)
                     arguments.pointee.message = arena.string(message)
                     arguments.pointee.no_commit = UInt8(!committing)
+                    arguments.pointee.ignore_links = UInt8(!includingLinks)
+                    let links = linkMessages.sorted { $0.key < $1.key }
+                    arguments.pointee.link_paths = arena.strings(links.map(\.key))
+                    arguments.pointee.link_messages = arena.strings(links.map(\.value))
                 },
                 transform: MergeEvent.init
             )
@@ -189,7 +205,8 @@ extension Repository {
     /// The current branch must have been created from another branch,
     /// and it must include the latest revision of the target branch on the server:
     /// if the target branch has moved on,
-    /// merge it into the current branch with ``mergeBranch(named:message:committing:)``
+    /// merge it into the current branch with
+    /// ``mergeBranch(named:message:committing:linkMessages:includingLinks:)``
     /// and commit first.
     /// The working directory stays on the current branch.
     ///
@@ -232,7 +249,7 @@ extension Repository {
     /// it commits a revision whose `reverted-from` metadata value
     /// is the hash of the reverted revision.
     /// Otherwise the revert stays in progress
-    /// until you ``commit(message:)`` or ``abortMerge()``,
+    /// until you ``commit(message:linkMessages:)`` or ``abortMerge()``,
     /// and you resolve its conflicts
     /// with ``resolveConflicts(in:keeping:)``,
     /// where ``MergeSide/theirs`` is the reverted version of a file.
@@ -276,7 +293,7 @@ extension Repository {
     /// whose `cherry-picked-from` metadata value
     /// is the hash of the picked revision.
     /// A cherry-pick without conflicts and with `committing` set to `false`
-    /// stays in progress until you ``commit(message:)``,
+    /// stays in progress until you ``commit(message:linkMessages:)``,
     /// which records the same `cherry-picked-from` value.
     ///
     /// Lore 0.11.0 has no functions to resolve or abort a cherry-pick:
