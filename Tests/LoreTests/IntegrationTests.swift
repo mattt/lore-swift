@@ -145,6 +145,34 @@ import Testing
         #expect(try await repository.locks().isEmpty)
     }
 
+    @Test func repositoryInfo() async throws {
+        let (repository, url) = try await makePublishedRepository()
+        let info = try await repository.info()
+        #expect(info.remote == serverURL)
+        #expect(info.name == URL(string: url)?.lastPathComponent)
+        #expect(info.defaultBranchName == "main")
+        #expect(info.defaultBranchID == (try await repository.status().branchID))
+        #expect(info.creator == "alice@example.com")
+        #expect(abs(info.creationDate.timeIntervalSinceNow) < 60)
+    }
+
+    @Test func repositoryMetadata() async throws {
+        let (repository, _) = try await makePublishedRepository()
+        try await repository.setRepositoryMetadata(["team": .string("tools"), "size": .number(3)])
+        #expect(try await repository.repositoryMetadata(forKey: "team") == .string("tools"))
+        #expect(try await repository.repositoryMetadata()["size"] == .number(3))
+
+        try await repository.clearRepositoryMetadata(keys: ["team"])
+        let cleared = try await repository.repositoryMetadata()
+        #expect(cleared["team"] == nil)
+        #expect(cleared["size"] == .number(3))
+
+        try await repository.clearRepositoryMetadata()
+        let all = try await repository.repositoryMetadata()
+        #expect(all["size"] == nil)
+        #expect(all["default-branch-name"] == .string("main"))
+    }
+
     @Test func branchMetadata() async throws {
         let (repository, _) = try await makePublishedRepository()
         try await repository.setBranchMetadata(["owner": .string("alice")])
