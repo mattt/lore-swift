@@ -290,6 +290,28 @@ let conflictMarkers = "<<<<<<< ours\nmain\n||||||| original\nbase\n=======\nfeat
         #expect(merged.conflicts.isEmpty)
     }
 
+    @Test func resetToTheLastMerge() async throws {
+        let (repository, _, _) = try await repositoryWithConflictingBranches()
+        try await repository.switchBranch(to: "feature")
+        try await repository.mergeBranch(named: "main")
+        try await repository.resolveConflicts(in: ["a.txt"], keeping: .mine)
+        try await repository.commit(message: "Merge main")
+        try repository.write("scratch\n", to: "a.txt")
+
+        let reset = try await repository.reset(["a.txt"], toLastMergeFrom: "main")
+        #expect(reset.map(\.path) == ["a.txt"])
+        #expect(try repository.read("a.txt") == "feature\n")
+        try await repository.reset(["a.txt"], toLastMergeFrom: "main", keeping: .theirs)
+        #expect(try repository.read("a.txt") == "main\n")
+        try await repository.reset(["a.txt"], toLastMergeFrom: "main", keeping: .mine)
+        #expect(try repository.read("a.txt") == "feature\n")
+
+        let error = await #expect(throws: LoreError.self) {
+            try await repository.reset(["a.txt"], toLastMergeFrom: "feature")
+        }
+        #expect(error?.code == .branchNotFound)
+    }
+
     @Test func mergeIntoNeedsAServer() async throws {
         let (repository, _, _) = try await repositoryWithConflictingBranches()
         try await repository.switchBranch(to: "feature")
