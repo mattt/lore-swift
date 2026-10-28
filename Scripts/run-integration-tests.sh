@@ -13,7 +13,7 @@
 # port 43547 for QUIC and gRPC, and port 43549 for HTTP.
 # Its tokens come from a stub OpenID Connect provider on port 43551
 # (Scripts/identity-provider.py, which needs the system Python 3),
-# signed with a key that this script generates for each run.
+# signed with a key that this script generates for each run and removes after it.
 # Stores, keys, logs, and temporary files go in .scratch/integration/.
 #
 # The script is compatible with Bash 3.2, the system Bash on macOS.
@@ -45,21 +45,31 @@ for port in "$PORT" "$HTTP_PORT" "$AUTH_PORT" "$AUTH_HTTP_PORT" "$PROVIDER_PORT"
 done
 
 pids=""
-stop_processes() {
+signing_key=""
+# Stops the servers and the provider and removes the signing key.
+# No command in it can end it early.
+clean_up() {
     for pid in $pids; do
         if kill -0 "$pid" 2>/dev/null; then
-            kill "$pid"
+            kill "$pid" 2>/dev/null || true
             wait "$pid" 2>/dev/null || true
         fi
     done
+    if [ -n "$signing_key" ]; then
+        rm -f "$signing_key" || true
+    fi
 }
-trap stop_processes EXIT
+trap clean_up EXIT
+# Exiting runs the EXIT trap, with the status for the signal.
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # Waits until a URL answers, or fails if the process with the given ID exits.
 wait_for() {
     local url="$1" pid="$2" log="$3"
     for _ in $(seq 1 50); do
-        if curl --silent --fail --output /dev/null "$url"; then
+        if curl --silent --fail --connect-timeout 1 --max-time 2 --output /dev/null "$url"; then
             return 0
         fi
         if ! kill -0 "$pid" 2>/dev/null; then
@@ -113,15 +123,18 @@ start_server open "$HTTP_PORT"
 
 # The provider publishes the public half of a P-256 key
 # in its discovery document's key set.
+# Only this user can read the private key,
+# and the script removes it when it exits.
 provider="$run/provider"
 mkdir -p "$provider/files/.well-known"
-if ! /usr/bin/openssl ecparam -name prime256v1 -genkey -noout 2>/dev/null |
-    /usr/bin/openssl pkcs8 -topk8 -nocrypt -out "$provider/key.pem"; then
+signing_key="$provider/key.pem"
+if ! (umask 077 && /usr/bin/openssl ecparam -name prime256v1 -genkey -noout 2>/dev/null |
+    /usr/bin/openssl pkcs8 -topk8 -nocrypt -out "$signing_key"); then
     echo "error: could not generate a signing key" >&2
     exit 1
 fi
 # The last 64 bytes of a P-256 public key in DER form are its coordinates.
-/usr/bin/openssl ec -in "$provider/key.pem" -pubout -outform DER 2>/dev/null |
+/usr/bin/openssl ec -in "$signing_key" -pubout -outform DER 2>/dev/null |
     tail -c 64 >"$provider/public-key"
 base64url() { base64 | tr '+/' '-_' | tr -d '=\n'; }
 x="$(head -c 32 "$provider/public-key" | base64url)"
@@ -164,5 +177,5 @@ LORE_INTEGRATION=1 \
     LORE_SERVER_URL="lore://$HOST:$PORT" \
     LORE_AUTHENTICATED_SERVER_URL="lore://$HOST:$AUTH_PORT" \
     LORE_IDENTITY_PROVIDER_URL="$ISSUER" \
-    LORE_SIGNING_KEY="$provider/key.pem" \
+    LORE_SIGNING_KEY="$signing_key" \
     swift test "$@"
