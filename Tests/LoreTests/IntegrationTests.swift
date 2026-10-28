@@ -144,4 +144,25 @@ import Testing
         #expect(try await repository.unlock(["a.txt"]).isEmpty)
         #expect(try await repository.locks().isEmpty)
     }
+
+    @Test func restoreCommitsAnEarlierRevision() async throws {
+        let (repository, _) = try await makePublishedRepository()
+        try repository.write("hello again\n", to: "a.txt")
+        try await repository.stage(["a.txt"])
+        let second = try await repository.commit(message: "Second")
+        try await repository.push()
+
+        let first = try await repository.revision("main@1")
+        try await repository.sync(to: .id(first.id))
+        let restored = try await repository.restore(message: "Restore the first revision")
+        #expect(restored.number == 3)
+        #expect(restored.parents == [second.id])
+        #expect(restored.message == "Restore the first revision")
+        #expect(restored.metadata["restored-from"] == .hash(first.id.bytes))
+        #expect(try repository.read("a.txt") == "hello\n")
+
+        let status = try await repository.status()
+        #expect(status.revision == restored.id)
+        #expect(status.remoteRevision == restored.id)
+    }
 }
