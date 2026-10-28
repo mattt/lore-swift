@@ -237,6 +237,58 @@ let conflictMarkers = "<<<<<<< ours\nmain\n||||||| original\nbase\n=======\nfeat
         }
         #expect(missing?.code == .branchNotFound)
     }
+
+    @Test func branchDiffReportsChangesAndConflicts() async throws {
+        let (repository, main, feature) = try await repositoryWithConflictingBranches()
+        let diff = try await repository.branchDiff(from: "feature", to: "main")
+        #expect(diff.sourceRevision == feature.id)
+        #expect(diff.targetRevision == main.id)
+        #expect(diff.baseRevision == main.parents.first)
+        #expect(
+            diff.changes == [
+                BranchDiff.Change(path: "c.txt", action: .add, isAutomaticallyMerged: false)
+            ]
+        )
+        let change = BranchDiff.Change(path: "a.txt", action: .keep, isAutomaticallyMerged: false)
+        #expect(diff.conflicts == [BranchDiff.Conflict(source: change, target: change)])
+
+        let reverse = try await repository.branchDiff(from: "main", to: "feature")
+        #expect(reverse.changes.isEmpty)
+        #expect(reverse.conflicts.map(\.source.path) == ["a.txt"])
+
+        let limited = try await repository.branchDiff(from: "feature", to: "main", path: "c.txt")
+        #expect(limited.changes.map(\.path) == ["c.txt"])
+        #expect(limited.conflicts.isEmpty)
+
+        let error = await #expect(throws: LoreError.self) {
+            try await repository.branchDiff(from: "missing", to: "main")
+        }
+        #expect(error?.code == .branchNotFound)
+    }
+
+    @Test func branchDiffCanMergeAutomatically() async throws {
+        let repository = try await makeOfflineRepository()
+        try repository.write("1\n2\n3\n4\n5\n6\n", to: "a.txt")
+        try await repository.stage(["."])
+        try await repository.commit(message: "Base")
+        try await repository.createBranch(named: "feature")
+        try await repository.switchBranch(to: "feature")
+        try repository.write("1 feature\n2\n3\n4\n5\n6\n", to: "a.txt")
+        try await repository.stage(["."])
+        try await repository.commit(message: "Feature")
+        try await repository.switchBranch(to: "main")
+        try repository.write("1\n2\n3\n4\n5\n6 main\n", to: "a.txt")
+        try await repository.stage(["."])
+        try await repository.commit(message: "Main")
+
+        let plain = try await repository.branchDiff(from: "feature", to: "main")
+        #expect(plain.changes.isEmpty)
+        #expect(plain.conflicts.map(\.source.path) == ["a.txt"])
+
+        let merged = try await repository.branchDiff(from: "feature", to: "main", mergingAutomatically: true)
+        #expect(merged.changes == [BranchDiff.Change(path: "a.txt", action: .keep, isAutomaticallyMerged: true)])
+        #expect(merged.conflicts.isEmpty)
+    }
 }
 
 @Suite struct RevertTests {

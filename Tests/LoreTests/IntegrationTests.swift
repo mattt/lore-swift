@@ -316,6 +316,12 @@ import Testing
         let main = try await bob.commit(message: "Bob")
         try await bob.push()
 
+        let diff = try await bob.branchDiff(from: "feature", to: "main")
+        #expect(diff.sourceRevision == feature.id)
+        #expect(diff.targetRevision == main.id)
+        #expect(diff.changes.map(\.path) == ["n.txt"])
+        #expect(diff.conflicts.map(\.source.path) == ["a.txt"])
+
         let result = try await bob.mergeBranch(named: "feature")
         #expect(result.sourceRevision == feature.id)
         #expect(result.conflicts == ["a.txt"])

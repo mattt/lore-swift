@@ -34,7 +34,100 @@ public struct MergeResult: Sendable, Hashable {
     public var conflicts: [String]
 }
 
+/// The changes and conflicts that a merge of one branch into another would have.
+public struct BranchDiff: Sendable, Hashable {
+    /// A change to a file in a branch diff.
+    public struct Change: Sendable, Hashable {
+        /// The path of the file, relative to the repository directory.
+        public var path: String
+
+        /// The previous path of a moved or copied file.
+        public var previousPath: String?
+
+        /// The change to the file.
+        public var action: FileAction
+
+        /// A Boolean value that indicates whether the library merged
+        /// the changes from both branches to the file,
+        /// which it does only when you ask it to merge automatically.
+        public var isAutomaticallyMerged: Bool
+    }
+
+    /// Changes to the same file in both branches that conflict.
+    public struct Conflict: Sendable, Hashable {
+        /// The change in the source branch.
+        public var source: Change
+
+        /// The change in the target branch.
+        public var target: Change
+    }
+
+    /// The latest revision of the source branch.
+    public var sourceRevision: RevisionID?
+
+    /// The latest revision of the target branch.
+    public var targetRevision: RevisionID?
+
+    /// The last revision that both branches share,
+    /// which the comparison treats as the base of each side.
+    public var baseRevision: RevisionID?
+
+    /// The changes in the source branch
+    /// that a merge would apply to the target branch without conflict.
+    public var changes: [Change]
+
+    /// The conflicts between the branches.
+    public var conflicts: [Conflict]
+}
+
 extension Repository {
+    /// Compares two branches
+    /// as a merge of the source branch into the target branch would.
+    ///
+    /// - Parameters:
+    ///   - source: The name of the branch to merge from.
+    ///   - target: The name of the branch to merge into.
+    ///   - path: A path to limit the comparison to,
+    ///     relative to the repository directory,
+    ///     or `nil` to compare every path.
+    ///   - mergingAutomatically: Whether to merge the changes to a file
+    ///     that both branches changed in different places,
+    ///     reporting the file as a change instead of a conflict.
+    /// - Returns: The changes and conflicts between the branches.
+    /// - Throws: ``LoreError`` if the library can't compare the branches,
+    ///   such as ``LoreError/Code/branchNotFound``.
+    public func branchDiff(
+        from source: String,
+        to target: String,
+        path: String? = nil,
+        mergingAutomatically: Bool = false
+    ) async throws -> BranchDiff {
+        let events = try await perform(
+            lore_branch_diff_async,
+            configure: { (arguments: UnsafeMutablePointer<lore_branch_diff_args_t>, arena) in
+                arguments.pointee.source = arena.string(source)
+                arguments.pointee.target = arena.string(target)
+                arguments.pointee.path = arena.string(path)
+                arguments.pointee.auto_resolve = UInt8(mergingAutomatically)
+            },
+            transform: BranchDiffEvent.init
+        )
+        var diff = BranchDiff(changes: [], conflicts: [])
+        for event in events {
+            switch event {
+            case .begin(let source, let target, let base):
+                diff.sourceRevision = source
+                diff.targetRevision = target
+                diff.baseRevision = base
+            case .change(let change):
+                diff.changes.append(change)
+            case .conflict(let conflict):
+                diff.conflicts.append(conflict)
+            }
+        }
+        return diff
+    }
+
     /// Merges another branch into the current branch.
     ///
     /// The merge stages the changes from the latest revision of the branch,
@@ -371,6 +464,50 @@ extension Repository {
         { arguments, arena in
             arguments.pointee[keyPath: keyPath] = arena.strings(paths)
         }
+    }
+}
+
+/// An event of a branch diff.
+private enum BranchDiffEvent: Sendable {
+    case begin(source: RevisionID?, target: RevisionID?, base: RevisionID?)
+    case change(BranchDiff.Change)
+    case conflict(BranchDiff.Conflict)
+
+    init?(_ event: UnsafePointer<lore_event_t>) {
+        switch event.pointee.tag {
+        case LORE_EVENT_BRANCH_DIFF_BEGIN.rawValue:
+            let data = event.pointee.branch_diff_begin
+            self = .begin(
+                source: RevisionID(data.source_revision),
+                target: RevisionID(data.target_revision),
+                base: RevisionID(data.base_revision)
+            )
+        case LORE_EVENT_BRANCH_DIFF_CHANGE.rawValue:
+            self = .change(BranchDiff.Change(event.pointee.branch_diff_change.change))
+        case LORE_EVENT_BRANCH_DIFF_CONFLICT.rawValue:
+            let data = event.pointee.branch_diff_conflict
+            self = .conflict(
+                BranchDiff.Conflict(
+                    source: BranchDiff.Change(data.source_change),
+                    target: BranchDiff.Change(data.target_change)
+                )
+            )
+        default:
+            return nil
+        }
+    }
+}
+
+extension BranchDiff.Change {
+    /// Copies the description of a changed node in a branch diff.
+    fileprivate init(_ data: lore_branch_diff_node_data_t) {
+        let previousPath = String(data.from_path)
+        self.init(
+            path: String(data.path),
+            previousPath: previousPath.isEmpty ? nil : previousPath,
+            action: FileAction(rawValue: data.action.rawValue),
+            isAutomaticallyMerged: Bool(data.automerged)
+        )
     }
 }
 
