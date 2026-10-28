@@ -18,6 +18,7 @@ It runs with the system Python 3 and uses only the standard library.
 import http.server
 import json
 import secrets
+import socketserver
 import string
 import sys
 import threading
@@ -97,4 +98,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         sys.stderr.write(f"{self.command} {self.path.split('?')[0]}\n")
 
 
-http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
+class Server(http.server.ThreadingHTTPServer):
+    def server_bind(self):
+        # HTTPServer.server_bind looks up the host's name
+        # after it binds the socket and before the socket listens.
+        # A slow lookup keeps the server from accepting connections,
+        # and the server doesn't use the name.
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
+
+server = Server(("127.0.0.1", port), Handler)
+sys.stderr.write(f"Listening on {issuer}\n")
+server.serve_forever()
