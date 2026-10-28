@@ -81,14 +81,20 @@ extension Repository {
     /// The working directory is the repository directory,
     /// so the library resolves relative paths against it.
     /// Set `force` for an operation that refuses to discard local changes
-    /// unless the library's global `force` flag is set.
-    func globals(in arena: Arena, force: Bool = false) -> UnsafeMutablePointer<lore_global_args_t> {
+    /// unless the library's global `force` flag is set,
+    /// and `offline` for an operation that reads only local state
+    /// in a repository that isn't offline.
+    func globals(
+        in arena: Arena,
+        force: Bool = false,
+        offline: Bool = false
+    ) -> UnsafeMutablePointer<lore_global_args_t> {
         let globals = arena.allocate(lore_global_args_t.self)
         globals.pointee.force = UInt8(force)
         globals.pointee.repository_path = arena.string(path)
         globals.pointee.working_directory = arena.string(path)
         globals.pointee.identity = arena.string(options.identity)
-        globals.pointee.offline = UInt8(options.isOffline)
+        globals.pointee.offline = UInt8(options.isOffline || offline)
         if let maximumConnections = options.maximumConnections {
             globals.pointee.max_connections = UInt32(clamping: maximumConnections)
         }
@@ -103,11 +109,12 @@ extension Repository {
             lore_event_callback_config_t
         ) -> Void,
         force: Bool = false,
+        offline: Bool = false,
         configure: (UnsafeMutablePointer<Arguments>, Arena) -> Void = { _, _ in },
         transform: @escaping EventTransform<Event>
     ) async throws -> [Event] {
         let arena = Arena()
-        let globals = globals(in: arena, force: force)
+        let globals = globals(in: arena, force: force, offline: offline)
         let arguments = arena.allocate(Arguments.self)
         configure(arguments, arena)
         return try await Lore.perform(transform) { callback in

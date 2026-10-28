@@ -357,6 +357,92 @@ import Testing
         #expect(try library.read("x.txt") == "x feature\n")
     }
 
+    /// Returns an app whose `feature` branch adds `b.txt`
+    /// and changes `x.txt` in a link that `main` also changes,
+    /// after a clean merge of `earlier` into `main` if `mergingEarlier` is `true`.
+    private func appWithAConflictInALink(
+        mergingEarlier: Bool = false
+    ) async throws -> (app: Repository, feature: Revision) {
+        let (_, app, url) = try await makeLibraryAndApp()
+        try await app.addLink(to: url, at: "vendor/library")
+        try await app.commit(message: "Link the library")
+        try await app.push()
+        if mergingEarlier {
+            try await app.createBranch(named: "earlier")
+            try await app.switchBranch(to: "earlier")
+            try app.write("e\n", to: "e.txt")
+            try await app.stage(["e.txt"])
+            let earlier = try await app.commit(message: "Earlier")
+            try await app.push()
+            try await app.switchBranch(to: "main")
+            let merge = try await app.mergeBranch(named: "earlier", message: "Merge earlier")
+            #expect(merge.sourceRevision == earlier.id)
+            #expect(merge.revision != nil)
+        }
+        try await app.createBranch(named: "feature")
+        try await app.switchBranch(to: "feature")
+        try app.write("b feature\n", to: "b.txt")
+        try app.write("x feature\n", to: "vendor/library/x.txt")
+        try await app.stage(["."])
+        let feature = try await app.commit(message: "Feature")
+        try await app.push()
+        try await app.switchBranch(to: "main")
+        try app.write("x main\n", to: "vendor/library/x.txt")
+        try await app.stage(["."])
+        try await app.commit(message: "Main")
+        return (app, feature)
+    }
+
+    @Test func aMergeStoppedInALinkAfterAnEarlierMerge() async throws {
+        let (app, _) = try await appWithAConflictInALink(mergingEarlier: true)
+        let result = try await app.mergeBranch(named: "feature", message: "Merge feature")
+        #expect(result.sourceRevision == nil)
+        #expect(result.revision == nil)
+        #expect(result.conflicts == ["vendor/library/x.txt"])
+    }
+
+    @Test func abortAMergeStoppedInALink() async throws {
+        let (app, _) = try await appWithAConflictInALink()
+        try await app.mergeBranch(named: "feature", message: "Merge feature")
+        try await app.abortMerge()
+        #expect(try app.read("vendor/library/x.txt") == "x main\n")
+        let status = try await app.status()
+        #expect(status.files.filter { $0.isStaged || $0.isConflicted }.isEmpty)
+        let again = try await app.mergeBranch(named: "feature", message: "Merge feature")
+        #expect(again.conflicts == ["vendor/library/x.txt"])
+    }
+
+    @Test func resolveAMergeStoppedInALinkWithTheMergedFile() async throws {
+        let (app, _) = try await appWithAConflictInALink()
+        try await app.mergeBranch(named: "feature", message: "Merge feature")
+        try app.write("x merged\n", to: "vendor/library/x.txt")
+        #expect(try await app.resolveConflicts(in: ["vendor/library/x.txt"]) == ["vendor/library/x.txt"])
+        #expect(try await app.status(ofFile: "vendor/library/x.txt")?.isConflicted == false)
+        let pin = try await app.commit(message: "Merge feature into the library")
+        #expect(pin.parents.count == 1)
+        #expect(try app.read("vendor/library/x.txt") == "x merged\n")
+    }
+
+    @Test func unresolveAndRestartAMergeStoppedInALink() async throws {
+        let (app, _) = try await appWithAConflictInALink()
+        try await app.mergeBranch(named: "feature", message: "Merge feature")
+        #expect(
+            try await app.resolveConflicts(in: ["vendor/library/x.txt"], keeping: .mine) == ["vendor/library/x.txt"]
+        )
+        #expect(try app.read("vendor/library/x.txt") == "x main\n")
+
+        // Lore 0.11.0 can't unresolve or restart a file in a linked repository.
+        let unresolve = await #expect(throws: LoreError.self) {
+            try await app.unresolveConflicts(in: ["vendor/library/x.txt"])
+        }
+        #expect(unresolve?.code == .internal)
+        let restart = await #expect(throws: LoreError.self) {
+            try await app.restartMerge(of: ["vendor/library/x.txt"])
+        }
+        #expect(restart?.code == .invalidArguments)
+        #expect(try await app.status(ofFile: "vendor/library/x.txt")?.isConflicted == false)
+    }
+
     @Test func aMergeWithAConflictInALinkAndNotInThisRepository() async throws {
         let (_, app, url) = try await makeLibraryAndApp()
         try await app.addLink(to: url, at: "vendor/library")

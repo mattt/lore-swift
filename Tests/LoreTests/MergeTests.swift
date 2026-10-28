@@ -585,6 +585,37 @@ let conflictMarkers = "<<<<<<< ours\nmain\n||||||| original\nbase\n=======\nfeat
         #expect(!repository.exists("c.txt"))
     }
 
+    /// Reverts `main@2` right after a merge commit,
+    /// which conflicts in `a.txt`.
+    private func revertAfterAMerge() async throws -> (Repository, merge: Revision) {
+        let (repository, _, _) = try await repositoryWithConflictingBranches()
+        try await repository.mergeBranch(named: "feature")
+        try await repository.resolveConflicts(in: ["a.txt"], keeping: .theirs)
+        let merge = try await repository.commit(message: "Merge feature")
+        let result = try await repository.revert("main@2")
+        #expect(result.sourceRevision != nil)
+        #expect(result.conflicts == ["a.txt"])
+        #expect(result.revision == nil)
+        return (repository, merge)
+    }
+
+    @Test func resolveARevertRightAfterAMerge() async throws {
+        let (repository, merge) = try await revertAfterAMerge()
+        #expect(try await repository.resolveConflicts(in: ["a.txt"], keeping: .mine) == ["a.txt"])
+        let revert = try await repository.commit(message: "Revert main")
+        #expect(revert.parents == [merge.id])
+        #expect(try repository.read("a.txt") == "feature\n")
+    }
+
+    @Test func abortARevertRightAfterAMerge() async throws {
+        let (repository, merge) = try await revertAfterAMerge()
+        try await repository.abortMerge()
+        #expect(try repository.read("a.txt") == "feature\n")
+        let status = try await repository.status()
+        #expect(status.revision == merge.id)
+        #expect(status.files.isEmpty)
+    }
+
     @Test func resolveARevertThroughADirectory() async throws {
         let repository = try await makeOfflineRepository()
         for message in ["one", "two", "three"] {

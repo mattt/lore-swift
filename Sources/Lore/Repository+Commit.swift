@@ -130,11 +130,14 @@ extension Repository {
     /// The new revision is local
     /// until you ``push(branch:allowingFastForward:)`` it.
     ///
-    /// Files staged in a linked repository or a layer
+    /// Files staged in a linked repository
     /// are committed as a revision of that repository first,
     /// with the message for the link in `linkMessages`
-    /// or else `message`.
-    /// The new revision of this repository pins each link to its new revision.
+    /// or else `message`,
+    /// and the new revision of this repository pins each link to its new revision.
+    /// Files staged in a layer are committed as a revision
+    /// of the layer's repository with `message`;
+    /// this repository's revisions don't record it.
     /// If only files of layers are staged,
     /// this repository gets no new revision.
     ///
@@ -154,6 +157,7 @@ extension Repository {
     ///   for a path in `linkMessages` that isn't a link.
     @discardableResult
     public func commit(message: String, linkMessages: [String: String] = [:]) async throws -> Revision {
+        let repositoryID = try await state().repositoryID
         let events = try await perform(
             lore_revision_commit_async,
             configure: { (arguments: UnsafeMutablePointer<lore_revision_commit_args_t>, arena) in
@@ -164,7 +168,6 @@ extension Repository {
             },
             transform: CommitEvent.init
         )
-        let repositoryID = try await state().repositoryID
         if let revision = CommitEvent.revision(of: repositoryID, in: events) {
             return revision
         }
@@ -189,6 +192,7 @@ extension Repository {
     /// - Throws: ``LoreError`` if the library can't amend the revision.
     @discardableResult
     public func amend(message: String) async throws -> Revision {
+        let repositoryID = try await state().repositoryID
         let events = try await perform(
             lore_revision_amend_async,
             configure: { (arguments: UnsafeMutablePointer<lore_revision_amend_args_t>, arena) in
@@ -196,7 +200,6 @@ extension Repository {
             },
             transform: CommitEvent.init
         )
-        let repositoryID = try await state().repositoryID
         guard let revision = CommitEvent.revision(of: repositoryID, in: events) else {
             throw LoreError.missingEvent("a revision")
         }

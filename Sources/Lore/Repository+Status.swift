@@ -244,8 +244,8 @@ struct RepositoryState: Sendable {
     /// The identifier of the repository.
     var repositoryID: RepositoryID
 
-    /// The incoming revision of the merge in progress
-    /// or of the last merge revision, if any.
+    /// The incoming revision of the merge in progress,
+    /// or of an earlier merge that the library still reports.
     var mergedRevision: RevisionID?
 
     /// The paths of the files with unresolved conflicts.
@@ -255,7 +255,7 @@ struct RepositoryState: Sendable {
 extension Repository {
     /// Reads the identifier of the repository
     /// and the state of a merge,
-    /// without scanning the working directory.
+    /// without scanning the working directory or connecting to the server.
     ///
     /// Operations on a repository with links or layers
     /// also report events for the linked repositories and layers;
@@ -265,8 +265,10 @@ extension Repository {
     func state(includingFiles: Bool = false) async throws -> RepositoryState {
         let events = try await perform(
             lore_repository_status_async,
+            offline: true,
             configure: { (arguments: UnsafeMutablePointer<lore_repository_status_args_t>, _) in
                 arguments.pointee.staged = UInt8(includingFiles)
+                arguments.pointee.revision_only = UInt8(!includingFiles)
             },
             transform: { event -> RepositoryStateEvent? in
                 switch event.pointee.tag {

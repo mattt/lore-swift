@@ -146,6 +146,10 @@ if !result.conflicts.isEmpty {
 }
 ```
 
+A conflict in a linked repository stops the merge before this repository,
+and `result.sourceRevision` is `nil`;
+merge again after you commit.
+
 ### Adding metadata and dependencies
 
 File metadata, revision metadata, and dependencies are staged for the next commit.

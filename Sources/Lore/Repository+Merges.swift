@@ -24,7 +24,9 @@ public struct MergeResult: Sendable, Hashable {
     /// or the revision that was reverted or cherry-picked.
     ///
     /// It's `nil` if a merge stopped at a conflict in a linked repository
-    /// before it merged this repository.
+    /// before it merged this repository;
+    /// see ``Repository/mergeBranch(named:message:committing:linkMessages:includingLinks:)``
+    /// for what to do next.
     public var sourceRevision: RevisionID?
 
     /// The revision that the operation committed,
@@ -159,6 +161,14 @@ extension Repository {
     /// of each linked repository that follows this repository's branches,
     /// and a merge revision that it commits there
     /// has the message for the link in `linkMessages`.
+    ///
+    /// A conflict in a linked repository stops the merge
+    /// before it merges this repository,
+    /// and the result's ``MergeResult/sourceRevision`` is `nil`.
+    /// After you resolve the conflict,
+    /// ``commit(message:linkMessages:)`` commits the merge in the linked repository
+    /// and a revision of this repository with one parent that pins the link.
+    /// Then call this method again to merge this repository.
     ///
     /// - Parameters:
     ///   - name: The name of the branch to merge.
@@ -405,6 +415,8 @@ extension Repository {
     ///
     /// Unresolving a file doesn't change it in the working directory;
     /// call ``restartMerge(of:)`` to write its conflict markers again.
+    /// Lore 0.11.0 can't unresolve a file in a linked repository
+    /// and throws ``LoreError/Code/internal``.
     ///
     /// - Parameter paths: The paths of the files, relative to the repository directory.
     ///   Lore 0.11.0 ignores directories.
@@ -424,6 +436,8 @@ extension Repository {
     /// Restarting writes each file with conflict markers again
     /// and marks it as in conflict,
     /// discarding its content in the working directory.
+    /// Lore 0.11.0 can't restart a file in a linked repository
+    /// and throws ``LoreError/Code/invalidArguments``.
     ///
     /// - Parameter paths: The paths of the files, relative to the repository directory.
     ///   Lore 0.11.0 ignores directories.
@@ -498,6 +512,10 @@ extension Repository {
     private func isRevertInProgress() async throws -> Bool {
         let merged = try await perform(
             lore_repository_status_async,
+            offline: true,
+            configure: { (arguments: UnsafeMutablePointer<lore_repository_status_args_t>, _) in
+                arguments.pointee.revision_only = 1
+            },
             transform: { event -> Bool? in
                 guard event.pointee.tag == LORE_EVENT_REPOSITORY_STATUS_REVISION.rawValue else {
                     return nil
@@ -675,8 +693,9 @@ private enum MergeEvent: Sendable {
             throw LoreError.missingEvent("the source revision")
         }
         // The begin event of this repository comes last,
-        // but a merge that a linked repository's conflict stopped has none.
-        if isBranchMerge, state.mergedRevision == nil {
+        // but a merge that a linked repository's conflict stopped has none,
+        // and the status can still report the incoming revision of an earlier merge.
+        if isBranchMerge, source != state.mergedRevision {
             source = nil
         }
         var reported: Set<String> = []
