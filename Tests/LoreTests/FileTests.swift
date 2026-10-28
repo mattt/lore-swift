@@ -102,6 +102,22 @@ import Testing
         #expect(diff.patch.contains("+three\n"))
     }
 
+    @Test func diffNamesAMissingSideDevNull() async throws {
+        let repository = try await repositoryWithTwoRevisions()
+        try FileManager.default.removeItem(atPath: "\(repository.path)/b.txt")
+        try repository.write("new\n", to: "c.txt")
+        try await repository.stage(["."])
+        try await repository.commit(message: "Three")
+
+        let patches = Dictionary(
+            uniqueKeysWithValues: try await repository.diff(from: "main@2", to: "main@3").map { ($0.path, $0) }
+        )
+        #expect(patches["b.txt"]?.action == .delete)
+        #expect(patches["b.txt"]?.patch.hasPrefix("--- b.txt@2\n+++ /dev/null\n") == true)
+        #expect(patches["c.txt"]?.action == .add)
+        #expect(patches["c.txt"]?.patch.hasPrefix("--- /dev/null\n+++ c.txt\n") == true)
+    }
+
     @Test func diffHonorsContextLinesAndWhitespaceOptions() async throws {
         let repository = try await makeOfflineRepository()
         let lines = (1 ... 9).map { "line \($0)\n" }

@@ -55,8 +55,14 @@ public struct FileDiff: Sendable, Hashable {
     /// The change to the file.
     public var action: FileAction
 
-    /// The differences in unified diff format,
-    /// with `--- path@revision` and `+++ path@revision` header lines.
+    /// The differences in unified diff format.
+    ///
+    /// The `---` and `+++` header lines name each side of the comparison.
+    /// A side where the file doesn't exist is `/dev/null`.
+    /// The other sides are the path followed by `@` and the revision number,
+    /// such as `a.txt@2`,
+    /// except that the working directory and the target of an added file
+    /// are the path alone.
     public var patch: String
 }
 
