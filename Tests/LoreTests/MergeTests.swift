@@ -596,8 +596,9 @@ let conflictMarkers = "<<<<<<< ours\nmain\n||||||| original\nbase\n=======\nfeat
         }
         #expect(try await repository.revert("main@2").conflicts.sorted() == ["a.txt", "b.txt"])
 
-        // Resolving a directory with a side also resolves `c.txt`,
-        // which the revert changed without conflict.
+        // Resolving a directory with a side also replaces `c.txt`,
+        // which the revert changed without conflict,
+        // and Lore 0.11.0 then reports `c.txt` as in conflict.
         #expect(
             try await repository.resolveConflicts(in: ["."], keeping: .theirs).sorted() == ["a.txt", "b.txt", "c.txt"]
         )
