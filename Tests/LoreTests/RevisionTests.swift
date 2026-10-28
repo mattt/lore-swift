@@ -52,6 +52,23 @@ import Testing
         #expect(error?.code == .invalidArguments)
     }
 
+    @Test func historyIncludesEveryRevisionSinceADateBefore1970() async throws {
+        let (repository, _) = try await repositoryWithHistory()
+        #expect(try await repository.history(since: Date(timeIntervalSince1970: 0)).count == 3)
+        #expect(try await repository.history(since: Date(timeIntervalSince1970: -1)).count == 3)
+        #expect(try await repository.history(since: .distantPast).count == 3)
+        #expect(try await repository.history(since: .distantFuture).isEmpty)
+    }
+
+    @Test(arguments: [TimeInterval.infinity, -.infinity, .nan, 1e20])
+    func historyRejectsDatesWithoutATimestamp(_ seconds: TimeInterval) async throws {
+        let (repository, _) = try await repositoryWithHistory()
+        let error = await #expect(throws: LoreError.self) {
+            try await repository.history(since: Date(timeIntervalSince1970: seconds))
+        }
+        #expect(error?.code == .invalidArguments)
+    }
+
     @Test func historyOfABranchContinuesIntoItsParent() async throws {
         let (repository, revisions) = try await repositoryWithHistory()
         try await repository.createBranch(named: "feature")

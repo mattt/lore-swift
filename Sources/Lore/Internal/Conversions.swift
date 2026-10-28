@@ -49,6 +49,29 @@ extension Date {
     }
 }
 
+extension UInt64 {
+    /// Converts a date to the first library timestamp at or after it,
+    /// in milliseconds since 00:00:00 UTC on 1 January 1970.
+    ///
+    /// A date before 1970 becomes 0.
+    /// Returns `nil` for a date that isn't finite
+    /// or that's later than the largest timestamp.
+    init?(timestampAtOrAfter date: Date) {
+        let milliseconds = (date.timeIntervalSince1970 * 1000).rounded(.up)
+        guard milliseconds.isFinite else {
+            return nil
+        }
+        guard milliseconds > 0 else {
+            self = 0
+            return
+        }
+        guard let value = UInt64(exactly: milliseconds) else {
+            return nil
+        }
+        self = value
+    }
+}
+
 /// Copies the bytes of a fixed-size C array,
 /// which Swift imports as a tuple.
 func tupleBytes<T>(_ tuple: T) -> [UInt8] {

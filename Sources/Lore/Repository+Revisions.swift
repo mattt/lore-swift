@@ -23,7 +23,8 @@ extension Repository {
     /// - Returns: The revisions, with their metadata.
     /// - Throws: ``LoreError`` if the library can't list the history,
     ///   or with ``LoreError/Code/invalidArguments``
-    ///   if `limit` is less than 1.
+    ///   if `limit` is less than 1
+    ///   or `date` isn't finite or is too late for a library timestamp.
     public func history(
         from revision: RevisionSpecifier? = nil,
         on branch: String? = nil,
@@ -35,16 +36,24 @@ extension Repository {
         if let limit, limit < 1 {
             throw LoreError(code: .invalidArguments, message: "The limit must be at least 1, not \(limit).")
         }
+        // The library reads a date of 0 as no limit,
+        // which includes every revision, as a date before 1970 does.
+        var timestamp: UInt64 = 0
+        if let date {
+            guard let milliseconds = UInt64(timestampAtOrAfter: date) else {
+                throw LoreError(
+                    code: .invalidArguments,
+                    message: "The date can't be expressed as a library timestamp: \(date.timeIntervalSince1970)."
+                )
+            }
+            timestamp = milliseconds
+        }
         let events = try await perform(
             lore_revision_history_async,
             configure: { (arguments: UnsafeMutablePointer<lore_revision_history_args_t>, arena) in
                 arguments.pointee.revision = arena.string(revision?.rawValue)
                 arguments.pointee.branch = arena.string(branch)
-                // The library reads a date of 0 as no limit.
-                if let date {
-                    let milliseconds = (date.timeIntervalSince1970 * 1000).rounded(.up)
-                    arguments.pointee.date = milliseconds > 0 ? UInt64(milliseconds) : 0
-                }
+                arguments.pointee.date = timestamp
                 arguments.pointee.length = UInt32(clamping: limit ?? 0)
                 arguments.pointee.only_branch = UInt8(stoppingAtBranchPoint)
             },
