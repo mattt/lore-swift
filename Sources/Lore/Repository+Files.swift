@@ -268,15 +268,19 @@ extension Repository {
     /// at the last merge from another branch into the current branch,
     /// discarding local changes.
     ///
-    /// The other branch must be one that the current branch was created from,
+    /// The other branch can be one that the current branch was created from,
     /// directly or through other branches.
     /// If the current branch has no merge from it,
     /// the files get their content at the revision of that branch
     /// that the current branch descends from.
     ///
+    /// For a directory path, such as `"."`,
+    /// Lore 0.11.0 resets the files under it to their content
+    /// at that revision instead of the content of the merge.
+    /// Pass the paths of files to restore the content of the merge.
+    ///
     /// - Parameters:
     ///   - paths: The paths to reset, relative to the repository directory.
-    ///     Pass `["."]` to reset every file.
     ///   - branch: The name of the branch that the current branch merged from.
     ///   - side: The version of each file to restore:
     ///     the content that the merge committed,
@@ -286,7 +290,7 @@ extension Repository {
     /// - Returns: The files that were reset.
     /// - Throws: ``LoreError`` if the library can't reset the files,
     ///   such as ``LoreError/Code/branchNotFound``
-    ///   for a branch that the current branch wasn't created from.
+    ///   for a branch that doesn't exist or for the current branch.
     @discardableResult
     public func reset(
         _ paths: [String],

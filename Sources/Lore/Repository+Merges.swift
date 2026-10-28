@@ -153,7 +153,8 @@ extension Repository {
     ///
     /// - Parameters:
     ///   - name: The name of the branch to merge.
-    ///   - message: The commit message for the merge revision,
+    ///   - message: The commit message for the merge revision
+    ///     if the merge commits,
     ///     or `nil` for an empty message.
     ///   - committing: Whether to commit the merge when no file is in conflict.
     /// - Returns: The result of the merge.
@@ -238,7 +239,8 @@ extension Repository {
     ///
     /// - Parameters:
     ///   - revision: The revision to revert.
-    ///   - message: The commit message for the new revision,
+    ///   - message: The commit message for the new revision
+    ///     if the revert commits,
     ///     or `nil` for an empty message.
     ///   - committing: Whether to commit the revert when no file is in conflict.
     /// - Returns: The result of the revert.
@@ -334,9 +336,16 @@ extension Repository {
     /// the reverse of the files that end with `~mine` and `~theirs`.
     /// Lore 0.11.0 can't resolve the conflicts of a cherry-pick.
     ///
+    /// A directory path with ``MergeSide/merged`` resolves the files under it.
+    /// A directory path with ``MergeSide/mine`` or ``MergeSide/theirs``
+    /// replaces every file under it that the operation changed,
+    /// including files without conflicts,
+    /// and Lore 0.11.0 then reports some of the files without conflicts,
+    /// such as files that the merge added, as in conflict.
+    ///
     /// - Parameters:
     ///   - paths: The paths of the files, relative to the repository directory.
-    ///     Pass `["."]` to resolve every file.
+    ///     Pass `["."]` with ``MergeSide/merged`` to resolve every file.
     ///   - side: The version of each file that resolves its conflict.
     /// - Returns: The paths of the files that were resolved.
     /// - Throws: ``LoreError`` if the library can't resolve the files.

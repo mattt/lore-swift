@@ -361,19 +361,47 @@ let conflictMarkers = "<<<<<<< ours\nmain\n||||||| original\nbase\n=======\nfeat
         #expect(Set(try await repository.changes(in: .id(merge.id)).map(\.path)).isSuperset(of: ["c.txt", "d.txt"]))
     }
 
+    @Test func resolvingADirectoryWithASideReplacesEveryMergedFile() async throws {
+        let repository = try await repositoryWithSeveralChanges()
+        try await repository.mergeBranch(named: "feature")
+        let resolved = try await repository.resolveConflicts(in: ["."], keeping: .mine)
+        #expect(resolved.sorted() == ["a.txt", "auto.txt", "b.txt", "c.txt", "d.txt"])
+        #expect(try repository.read("a.txt") == "main\n")
+        #expect(try repository.read("b.txt") == "main\n")
+        // The automatic merge and the added files are replaced too.
+        #expect(try repository.read("auto.txt") == "1\n2\n3\n4\n5\n6 main\n")
+        #expect(!repository.exists("c.txt"))
+        let status = try await repository.status()
+        for file in ["a.txt", "auto.txt", "b.txt"] {
+            let entry = try #require(status.files.first { $0.path == file })
+            #expect(!entry.isConflicted)
+            #expect(entry.conflictResolution == .mine)
+        }
+        #expect(status.files.filter(\.isConflicted).map(\.path).sorted() == ["c.txt", "d.txt"])
+    }
+
     @Test func resetToTheLastMerge() async throws {
         let repository = try await makeOfflineRepository()
-        try repository.write("base\n", to: "a.txt")
-        try repository.write("base\n", to: "one.txt")
-        try await repository.stage(["."])
-        try await repository.commit(message: "Base")
-        for branch in ["feature", "child"] {
-            try await repository.createBranch(named: branch)
-            try await repository.switchBranch(to: branch)
-            try repository.write("\(branch)\n", to: "a.txt")
-            try await repository.stage(["a.txt"])
-            try await repository.commit(message: branch)
+        func commit(_ files: [String: String], _ message: String) async throws {
+            for (file, text) in files {
+                try repository.write(text, to: file)
+            }
+            try await repository.stage(Array(files.keys))
+            try await repository.commit(message: message)
         }
+        try await commit(["a.txt": "base\n", "one.txt": "base\n"], "Base")
+        try await repository.createBranch(named: "feature")
+        try await repository.switchBranch(to: "feature")
+        try await commit(["a.txt": "feature\n"], "Feature")
+        try await repository.createBranch(named: "child")
+        try await repository.switchBranch(to: "child")
+        try await commit(["a.txt": "child\n"], "Child")
+        // Both ancestors of `child` move on after it branches.
+        try await repository.switchBranch(to: "feature")
+        try await commit(["a.txt": "feature later\n"], "Feature later")
+        try await repository.switchBranch(to: "main")
+        try await commit(["a.txt": "main\n", "one.txt": "main one\n"], "Main")
+        try await repository.switchBranch(to: "child")
 
         // Without a merge, the files get their content
         // at the revision of the branch that `child` descends from.
@@ -384,16 +412,15 @@ let conflictMarkers = "<<<<<<< ours\nmain\n||||||| original\nbase\n=======\nfeat
         #expect(try repository.read("a.txt") == "base\n")
 
         try await repository.reset(["a.txt"])
-        try await repository.switchBranch(to: "main")
-        try repository.write("main\n", to: "a.txt")
-        try repository.write("main one\n", to: "one.txt")
-        try await repository.stage(["."])
-        try await repository.commit(message: "Main")
-        try await repository.switchBranch(to: "child")
         try await repository.mergeBranch(named: "main")
         try repository.write("main and child\n", to: "a.txt")
         try await repository.resolveConflicts(in: ["a.txt"])
         try await repository.commit(message: "Merge main")
+        // Both branches move on after the merge.
+        try await commit(["a.txt": "child later\n", "one.txt": "child one later\n"], "Child later")
+        try await repository.switchBranch(to: "main")
+        try await commit(["a.txt": "main later\n", "one.txt": "main one later\n"], "Main later")
+        try await repository.switchBranch(to: "child")
 
         let expected: [(MergeSide, [String])] = [
             (.merged, ["main and child\n", "main one\n"]),
@@ -408,14 +435,28 @@ let conflictMarkers = "<<<<<<< ours\nmain\n||||||| original\nbase\n=======\nfeat
             #expect([try repository.read("a.txt"), try repository.read("one.txt")] == contents)
         }
 
-        try repository.write("untracked\n", to: "untracked.txt")
-        try await repository.reset(["."], toLastMergeFrom: "main", deletingUntrackedFiles: true)
-        #expect(!repository.exists("untracked.txt"))
-
-        let error = await #expect(throws: LoreError.self) {
-            try await repository.reset(["a.txt"], toLastMergeFrom: "child")
+        // For a directory, Lore 0.11.0 restores the content at the branch point
+        // instead of the content of the merge.
+        for deletingUntrackedFiles in [false, true] {
+            try repository.write("scratch\n", to: "a.txt")
+            try repository.write("scratch\n", to: "one.txt")
+            try repository.write("untracked\n", to: "untracked.txt")
+            let reset = try await repository.reset(
+                ["."],
+                toLastMergeFrom: "main",
+                deletingUntrackedFiles: deletingUntrackedFiles
+            )
+            #expect(reset.map(\.path).sorted() == ["a.txt", "one.txt"])
+            #expect([try repository.read("a.txt"), try repository.read("one.txt")] == ["base\n", "base\n"])
+            #expect(repository.exists("untracked.txt") == !deletingUntrackedFiles)
         }
-        #expect(error?.code == .branchNotFound)
+
+        for branch in ["child", "missing"] {
+            let error = await #expect(throws: LoreError.self) {
+                try await repository.reset(["a.txt"], toLastMergeFrom: branch)
+            }
+            #expect(error?.code == .branchNotFound)
+        }
     }
 
     @Test func mergeIntoNeedsAServer() async throws {
@@ -544,6 +585,30 @@ let conflictMarkers = "<<<<<<< ours\nmain\n||||||| original\nbase\n=======\nfeat
         #expect(!repository.exists("c.txt"))
     }
 
+    @Test func resolveARevertThroughADirectory() async throws {
+        let repository = try await makeOfflineRepository()
+        for message in ["one", "two", "three"] {
+            try repository.write("\(message)\n", to: "a.txt")
+            try repository.write("b \(message)\n", to: "b.txt")
+            try repository.write(message == "two" ? "c two\n" : "c\n", to: "c.txt")
+            try await repository.stage(["."])
+            try await repository.commit(message: message)
+        }
+        #expect(try await repository.revert("main@2").conflicts.sorted() == ["a.txt", "b.txt"])
+
+        // Resolving a directory with a side also resolves `c.txt`,
+        // which the revert changed without conflict.
+        #expect(
+            try await repository.resolveConflicts(in: ["."], keeping: .theirs).sorted() == ["a.txt", "b.txt", "c.txt"]
+        )
+        #expect(try repository.read("a.txt") == "one\n")
+        #expect(try repository.read("b.txt") == "b one\n")
+        let status = try await repository.status()
+        #expect(status.files.filter(\.isConflicted).map(\.path) == ["c.txt"])
+        #expect(status.files.first { $0.path == "a.txt" }?.conflictResolution == .theirs)
+        #expect(status.files.first { $0.path == "b.txt" }?.conflictResolution == .theirs)
+    }
+
     @Test func unresolveRestartAndAbortARevert() async throws {
         let (repository, revisions) = try await repositoryWithHistory()
         try await repository.revert("main@2")
@@ -592,8 +657,18 @@ let conflictMarkers = "<<<<<<< ours\nmain\n||||||| original\nbase\n=======\nfeat
         #expect(pick.metadata["cherry-picked-from"] == .hash(feature.id.bytes))
         #expect(try repository.read("c.txt") == "sea\n")
 
+        try await repository.switchBranch(to: "feature")
+        try repository.write("dee\n", to: "d.txt")
+        try await repository.stage(["d.txt"])
+        let second = try await repository.commit(message: "Add d.txt")
+        try await repository.switchBranch(to: "main")
+        let named = try #require(try await repository.cherryPick(.id(second.id), message: "Picked").revision)
+        #expect(named.message == "Picked")
+        #expect(named.parents == [pick.id])
+        #expect(named.metadata["cherry-picked-from"] == .hash(second.id.bytes))
+
         let current = await #expect(throws: LoreError.self) {
-            try await repository.cherryPick(.id(pick.id))
+            try await repository.cherryPick(.id(named.id))
         }
         #expect(current?.code == .internal)
     }
