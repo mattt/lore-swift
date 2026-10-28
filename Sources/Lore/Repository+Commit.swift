@@ -148,6 +148,33 @@ extension Repository {
         )
         return try CommitEvent.revision(events)
     }
+
+    /// Replaces the commit message of the current revision.
+    ///
+    /// Amending makes a new revision with the same number, parents,
+    /// changes, and other metadata,
+    /// and makes it the current revision and the latest revision of the branch.
+    /// The changes that you've staged aren't part of it.
+    ///
+    /// In Lore 0.11.0,
+    /// committing changes that you staged before an amend
+    /// fails with ``LoreError/Code/internal``;
+    /// ``unstage(_:)`` and ``stage(_:scanning:)`` them again first.
+    ///
+    /// - Parameter message: The new commit message.
+    /// - Returns: The amended revision, with its metadata.
+    /// - Throws: ``LoreError`` if the library can't amend the revision.
+    @discardableResult
+    public func amend(message: String) async throws -> Revision {
+        let events = try await perform(
+            lore_revision_amend_async,
+            configure: { (arguments: UnsafeMutablePointer<lore_revision_amend_args_t>, arena) in
+                arguments.pointee.message = arena.string(message)
+            },
+            transform: CommitEvent.init
+        )
+        return try CommitEvent.revision(events)
+    }
 }
 
 /// An event of a commit.

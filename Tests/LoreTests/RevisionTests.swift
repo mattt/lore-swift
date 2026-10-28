@@ -149,6 +149,47 @@ import Testing
         #expect(try await repository.changes(from: "main@3").isEmpty)
     }
 
+    @Test func amendReplacesTheMessage() async throws {
+        let (repository, revisions) = try await repositoryWithHistory()
+        let amended = try await repository.amend(message: "Three, amended")
+        #expect(amended.id != revisions[2].id)
+        #expect(amended.number == 3)
+        #expect(amended.parents == revisions[2].parents)
+        #expect(amended.branchID == revisions[2].branchID)
+        #expect(amended.message == "Three, amended")
+        #expect(amended.date == revisions[2].date)
+        #expect(try await repository.revision() == amended)
+        #expect(try await repository.history().map(\.message) == ["Three, amended", "Two", "One"])
+        #expect(try await repository.latestRevisions(limit: 2) == [amended.id, revisions[2].id])
+        #expect(try await repository.changes() == (try await repository.changes(in: .id(revisions[2].id))))
+
+        try repository.write("four\n", to: "a.txt")
+        try await repository.stage(["a.txt"])
+        #expect(try await repository.commit(message: "Four").parents == [amended.id])
+    }
+
+    @Test func amendKeepsStagedChangesOutOfTheRevision() async throws {
+        let (repository, revisions) = try await repositoryWithHistory()
+        try repository.write("four\n", to: "a.txt")
+        try await repository.stage(["a.txt"])
+        let amended = try await repository.amend(message: "Three, amended")
+        #expect(
+            try await repository.changes(in: .id(amended.id))
+                == (try await repository.changes(in: .id(revisions[2].id)))
+        )
+
+        // Lore 0.11.0 refuses to commit changes staged before an amend.
+        let error = await #expect(throws: LoreError.self) {
+            try await repository.commit(message: "Four")
+        }
+        #expect(error?.code == .internal)
+        try await repository.unstage(["a.txt"])
+        try await repository.stage(["a.txt"])
+        let four = try await repository.commit(message: "Four")
+        #expect(four.parents == [amended.id])
+        #expect(try await repository.changes(in: .id(four.id)).map(\.path) == ["a.txt"])
+    }
+
     @Test func restoreNeedsAServer() async throws {
         let (repository, _) = try await repositoryWithHistory()
         try await repository.sync(to: "main@1")
