@@ -110,10 +110,10 @@ import Testing
         )
         #expect(try await Authentication.credentials().map(\.userID).sorted() == ["alice", "bob", "carol"])
 
-        try await Authentication.logOut(from: authenticationURL, user: "alice")
+        try await Authentication.logOut(from: authenticationURL, userID: "alice")
         #expect(try await Authentication.credentials().map(\.userID).sorted() == ["bob", "carol"])
 
-        try await Authentication.logOut(from: authenticationURL)
+        try await Authentication.logOut(from: authenticationURL, resource: "unknown")
         #expect(try await Authentication.credentials().map(\.userID) == ["carol"])
 
         try await Authentication.logOut(from: authenticationURL)
@@ -139,12 +139,27 @@ import Testing
         }
     }
 
-    @Test func tokenLoginNeedsAServer() async throws {
+    @Test func emptyURLsAreRejected() async throws {
         let token = try makeToken(subject: "alice", rootDomains: ["example.test"])
-        let error = await #expect(throws: LoreError.self) {
-            try await Authentication.logIn(token: token)
-        }
-        #expect(error?.code == .noRemote)
+        let errors = [
+            await #expect(throws: LoreError.self) {
+                try await Authentication.logIn(token: token, server: "")
+            },
+            await #expect(throws: LoreError.self) {
+                try await Authentication.logIn(token: token, authenticationURL: "")
+            },
+            await #expect(throws: LoreError.self) {
+                for try await _ in Authentication.logInInteractively(server: "") {}
+            },
+            await #expect(throws: LoreError.self) {
+                try await Authentication.logOut(from: "")
+            },
+            await #expect(throws: LoreError.self) {
+                try await Authentication.localUsers(authenticationURL: "")
+            },
+        ]
+        #expect(errors.map { $0?.code } == Array(repeating: .invalidArguments, count: 5))
+        #expect(try await Authentication.credentials().isEmpty)
     }
 
     @Test func repositoryWithoutServer() async throws {
@@ -183,8 +198,8 @@ import Testing
             dumped,
         ]
         for description in descriptions {
-            #expect(!description.contains(token), "A description includes the token")
-            #expect(!description.contains(token.prefix(20)), "A description includes the token")
+            let leaked = description.contains(token) || description.contains(token.prefix(20))
+            #expect(!leaked, "A description includes the token")
         }
         #expect(String(describing: Authentication.Token(token)) == "Token(redacted)")
     }
@@ -279,6 +294,7 @@ import Testing
                     Authentication.User(id: "alice", name: "Alice"), Authentication.User(id: "bob", name: "bob"),
                 ]
             )
+            #expect(try await repository.users() == [Authentication.User(id: "alice", name: "Alice")])
             #expect(try await repository.localUsers().map(\.id) == ["alice"])
 
             let access = try await repository.accessCredential()
@@ -288,7 +304,13 @@ import Testing
             #expect(access.token != nil)
             #expect(try await Authentication.credentials().compactMap(\.resource) == [access.resource])
 
-            try await repository.logOut(user: "alice")
+            try await repository.logOut(userID: "alice", resource: access.resource)
+            let remaining = try await Authentication.credentials()
+            #expect(remaining.map(\.userID) == ["alice"])
+            #expect(remaining.map(\.resource) == [nil])
+            #expect(try await repository.accessCredential().resource == access.resource)
+
+            try await repository.logOut(resource: access.resource)
             #expect(try await Authentication.credentials().isEmpty)
             let unauthorized = await #expect(throws: LoreError.self) {
                 try await repository.push()
@@ -312,28 +334,87 @@ import Testing
         }
 
         @Test func interactiveLogin() async throws {
-            let token = try token(for: "dana", name: "Dana")
-            var progress: [Authentication.LoginProgress] = []
-            var result: Authentication.User?
-            for try await update in Authentication.logInInteractively(server: server) {
-                switch update {
-                case .progress(let update):
-                    progress.append(update)
-                    if case .openURL(_, let userCode?) = update {
-                        try await approve(userCode: userCode, token: token)
-                    }
-                case .completed(let user):
-                    result = user
-                }
-            }
-            #expect(result == Authentication.User(id: "dana", name: "Dana"))
+            let (progress, user) = try await logInInteractively(
+                Authentication.logInInteractively(server: server),
+                approvingWith: try token(for: "dana", name: "Dana")
+            )
+            #expect(user == Authentication.User(id: "dana", name: "Dana"))
             guard case .openURL(let url, let userCode)? = progress.first else {
                 Issue.record("The login reported no URL")
                 return
             }
             #expect(url == "\(issuer)/activate")
             #expect(userCode?.count == 9)
+
+            // The stub provider gives the login 60 seconds
+            // and asks for a poll every second.
+            let pending = progress.dropFirst()
+            #expect(!pending.isEmpty)
+            for update in pending {
+                guard case .pending(let elapsed, let nextPoll, let remaining) = update else {
+                    Issue.record("Unexpected update after the URL: \(update)")
+                    continue
+                }
+                #expect(nextPoll == .seconds(1))
+                #expect(remaining > .zero && remaining <= .seconds(60))
+                #expect(elapsed < remaining)
+            }
             #expect(try await Authentication.credentials().map(\.userID) == ["dana"])
+        }
+
+        @Test func repositoryInteractiveLoginUsesItsServer() async throws {
+            try await Authentication.logIn(token: try token(for: "dana"), server: server)
+            let path = temporaryRepositoryPath("authenticated")
+            let repository = try await Repository.create(
+                at: path,
+                name: "\(server)/\(URL(filePath: path).lastPathComponent)",
+                options: Repository.Options(identity: "dana")
+            )
+            try await Authentication.removeAllCredentials()
+
+            let (progress, user) = try await logInInteractively(
+                repository.logInInteractively(),
+                approvingWith: try token(for: "dana", name: "Dana")
+            )
+            #expect(user == Authentication.User(id: "dana", name: "Dana"))
+            guard case .openURL(let url, _)? = progress.first else {
+                Issue.record("The login reported no URL")
+                return
+            }
+            #expect(url == "\(issuer)/activate")
+            #expect(try await Authentication.credentials().map(\.authenticationURL) == [authenticationURL])
+        }
+
+        /// Runs an interactive login and approves it
+        /// after the first pending update,
+        /// so that the login reports at least one.
+        private func logInInteractively(
+            _ updates: AsyncThrowingStream<
+                OperationUpdate<Authentication.LoginProgress, Authentication.User>, any Error
+            >,
+            approvingWith token: String
+        ) async throws -> (progress: [Authentication.LoginProgress], user: Authentication.User?) {
+            var progress: [Authentication.LoginProgress] = []
+            var userCode: String?
+            var user: Authentication.User?
+            for try await update in updates {
+                switch update {
+                case .progress(let update):
+                    progress.append(update)
+                    switch update {
+                    case .openURL(_, let code):
+                        userCode = code
+                    case .pending:
+                        if let code = userCode {
+                            try await approve(userCode: code, token: token)
+                            userCode = nil
+                        }
+                    }
+                case .completed(let completed):
+                    user = completed
+                }
+            }
+            return (progress, user)
         }
 
         /// Approves a login at the stub identity provider, as the user would.

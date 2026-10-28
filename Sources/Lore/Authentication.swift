@@ -5,10 +5,15 @@ import Foundation
 /// that the library stores for the current user.
 ///
 /// The library keeps credentials in a token store in its per-user directory,
-/// encrypted with a key that it keeps in the login keychain.
+/// encrypted with a key that it keeps in the login keychain when it can.
+/// When it can't store the key in the keychain,
+/// it writes the key to a plain-text file next to the token store.
 /// Set `LORE_AUTH_STORE` to `fallback` in the environment
-/// to keep the key in a file next to the token store instead,
-/// and set `LORE_AUTH_PATH` to move the token store to another directory.
+/// to always keep the key in that file.
+/// The file isn't protected,
+/// so anyone who can read the directory can decrypt the stored tokens;
+/// the setting is meant for tests and continuous integration.
+/// Set `LORE_AUTH_PATH` to move the token store to another directory.
 ///
 /// Each credential belongs to an authentication service,
 /// which a server advertises to its clients.
@@ -172,13 +177,11 @@ extension Authentication.Token: CustomStringConvertible, CustomDebugStringConver
 // MARK: - Logging in
 
 extension Authentication {
-    /// Logs in with a token and stores it for later operations.
+    /// Logs in to a server with a token and stores it for later operations.
     ///
-    /// The library finds the authentication service of `server`,
-    /// unless you pass `authenticationURL`.
+    /// The library asks the server for its authentication service.
     /// It accepts a ``TokenType/lore`` token
-    /// only if the token names the domain of the server,
-    /// or of the authentication service if you pass `authenticationURL`,
+    /// only if the token names the server's domain
     /// in its `root_domains` claim or its audience.
     /// The library doesn't check the token's signature;
     /// the server checks it when an operation presents the token.
@@ -188,24 +191,47 @@ extension Authentication {
     ///   - type: The kind of token.
     ///   - server: The URL of the server,
     ///     such as `lore://lore.example.com:41337`.
-    ///   - authenticationURL: The URL of the authentication service,
-    ///     such as `ucs-auth://auth.example.com`,
-    ///     or `nil` to ask the server for it.
-    ///     A token login needs a server or an authentication URL.
     /// - Returns: The user that the token identifies.
     /// - Throws: ``LoreError`` if the library can't log in,
     ///   such as ``LoreError/Code/notSupported``
     ///   for a server that doesn't use authentication,
-    ///   or ``LoreError/Code/noRemote``
-    ///   if you pass neither a server nor an authentication URL.
+    ///   or ``LoreError/Code/invalidArguments`` for an empty server URL.
     @discardableResult
     public static func logIn(
         token: String,
         type: TokenType = .lore,
-        server: String? = nil,
-        authenticationURL: String? = nil
+        server: String
     ) async throws -> User {
-        try await context.logIn(token: token, type: type, server: server, authenticationURL: authenticationURL)
+        try requireURL(server, "server URL")
+        return try await context.logIn(token: token, type: type, server: server, authenticationURL: nil)
+    }
+
+    /// Logs in at an authentication service with a token
+    /// and stores it for later operations.
+    ///
+    /// The library doesn't contact the service for a ``TokenType/lore`` token.
+    /// It accepts the token only if the token names the service's domain
+    /// in its `root_domains` claim or its audience,
+    /// and it doesn't check the token's signature;
+    /// a server checks it when an operation presents the token.
+    ///
+    /// - Parameters:
+    ///   - token: The token.
+    ///   - type: The kind of token.
+    ///   - authenticationURL: The URL of the authentication service,
+    ///     such as `ucs-auth://auth.example.com`.
+    /// - Returns: The user that the token identifies.
+    /// - Throws: ``LoreError`` if the library can't log in,
+    ///   or ``LoreError/Code/invalidArguments``
+    ///   for an empty authentication URL.
+    @discardableResult
+    public static func logIn(
+        token: String,
+        type: TokenType = .lore,
+        authenticationURL: String
+    ) async throws -> User {
+        try requireURL(authenticationURL, "authentication URL")
+        return try await context.logIn(token: token, type: type, server: nil, authenticationURL: authenticationURL)
     }
 
     /// Logs in through the authentication service of a server,
@@ -241,11 +267,17 @@ extension Authentication {
     /// - Returns: A stream of the login's progress, then the user.
     ///   The stream throws ``LoreError`` if the login fails or expires,
     ///   such as ``LoreError/Code/notSupported``
-    ///   for a server that doesn't use authentication.
+    ///   for a server that doesn't use authentication,
+    ///   or ``LoreError/Code/invalidArguments`` for an empty server URL.
     public static func logInInteractively(
         server: String
     ) -> AsyncThrowingStream<OperationUpdate<LoginProgress, User>, any Error> {
-        context.logInInteractively(server: server)
+        do {
+            try requireURL(server, "server URL")
+        } catch {
+            return AsyncThrowingStream { $0.finish(throwing: error) }
+        }
+        return context.logInInteractively(server: server)
     }
 
     /// Returns the credentials in the token store.
@@ -273,19 +305,22 @@ extension Authentication {
     ///
     /// - Parameters:
     ///   - authenticationURL: The URL of the authentication service.
-    ///   - user: The identifier of the user whose credentials to remove,
+    ///   - userID: The identifier of the user whose credentials to remove,
     ///     or `nil` for every user.
     ///   - resource: The resource whose authorization token to remove,
     ///     or `nil` for the user's authentication token
     ///     and all of the user's authorization tokens.
-    ///     The library ignores the resource if `user` is `nil`.
-    /// - Throws: ``LoreError`` if the library can't update the token store.
+    ///     The library ignores the resource if `userID` is `nil`.
+    /// - Throws: ``LoreError`` if the library can't update the token store,
+    ///   or ``LoreError/Code/invalidArguments``
+    ///   for an empty authentication URL.
     public static func logOut(
         from authenticationURL: String,
-        user: String? = nil,
+        userID: String? = nil,
         resource: String? = nil
     ) async throws {
-        try await context.logOut(authenticationURL: authenticationURL, user: user, resource: resource)
+        try requireURL(authenticationURL, "authentication URL")
+        try await context.logOut(authenticationURL: authenticationURL, userID: userID, resource: resource)
     }
 
     /// Removes every credential from the token store.
@@ -314,13 +349,16 @@ extension Authentication {
     ///     of each user who has one.
     /// - Returns: The users,
     ///   or an empty array if `ids` is empty and no user has a stored token.
-    /// - Throws: ``LoreError`` if the library can't read the token store.
+    /// - Throws: ``LoreError`` if the library can't read the token store,
+    ///   or ``LoreError/Code/invalidArguments``
+    ///   for an empty authentication URL.
     public static func localUsers(
         withIDs ids: [String] = [],
         authenticationURL: String,
         includingTokens: Bool = false
     ) async throws -> [User] {
-        try await context.localUsers(
+        try requireURL(authenticationURL, "authentication URL")
+        return try await context.localUsers(
             withIDs: ids,
             authenticationURL: authenticationURL,
             includingTokens: includingTokens
@@ -330,11 +368,20 @@ extension Authentication {
     /// The context for calls that don't belong to a repository.
     ///
     /// Its empty path gives the library an empty repository path
-    /// and working directory,
-    /// so a call that looks for a repository looks in the
-    /// current directory of the process.
+    /// and working directory.
+    /// The library resolves an empty server or authentication URL
+    /// from the repository in the current directory of the process,
+    /// so the methods that use this context reject empty URLs
+    /// with `requireURL(_:_:)`.
     private static var context: Repository {
         Repository(path: "")
+    }
+
+    /// Throws ``LoreError/Code/invalidArguments`` for an empty URL.
+    private static func requireURL(_ url: String, _ name: String) throws {
+        if url.isEmpty {
+            throw LoreError(code: .invalidArguments, message: "The \(name) is empty.")
+        }
     }
 }
 
@@ -344,7 +391,7 @@ extension Repository {
     /// Logs in to the repository's server with a token
     /// and stores it for later operations.
     ///
-    /// See ``Authentication/logIn(token:type:server:authenticationURL:)``.
+    /// See ``Authentication/logIn(token:type:server:)``.
     ///
     /// - Parameters:
     ///   - token: The token.
@@ -380,15 +427,16 @@ extension Repository {
     /// The library asks the server for its authentication service.
     ///
     /// - Parameters:
-    ///   - user: The identifier of the user whose credentials to remove,
+    ///   - userID: The identifier of the user whose credentials to remove,
     ///     or `nil` for every user.
     ///   - resource: The resource whose authorization token to remove,
     ///     or `nil` for the user's authentication token
     ///     and all of the user's authorization tokens.
+    ///     The library ignores the resource if `userID` is `nil`.
     /// - Throws: ``LoreError`` if the library can't update the token store,
     ///   such as ``LoreError/Code/noRemote`` for a repository without a server.
-    public func logOut(user: String? = nil, resource: String? = nil) async throws {
-        try await logOut(authenticationURL: nil, user: user, resource: resource)
+    public func logOut(userID: String? = nil, resource: String? = nil) async throws {
+        try await logOut(authenticationURL: nil, userID: userID, resource: resource)
     }
 
     /// Returns the users with the given identifiers,
@@ -509,12 +557,12 @@ extension Repository {
         )
     }
 
-    fileprivate func logOut(authenticationURL: String?, user: String?, resource: String?) async throws {
+    fileprivate func logOut(authenticationURL: String?, userID: String?, resource: String?) async throws {
         _ = try await perform(
             lore_auth_logout_async,
             configure: { (arguments: UnsafeMutablePointer<lore_auth_logout_args_t>, arena) in
                 arguments.pointee.auth_url = arena.string(authenticationURL)
-                arguments.pointee.user_id = arena.string(user)
+                arguments.pointee.user_id = arena.string(userID)
                 arguments.pointee.resource = arena.string(resource)
             },
             transform: { _ -> Never? in nil }
