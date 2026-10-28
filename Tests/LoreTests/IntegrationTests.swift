@@ -145,6 +145,24 @@ import Testing
         #expect(try await repository.locks().isEmpty)
     }
 
+    @Test func branchMetadata() async throws {
+        let (repository, _) = try await makePublishedRepository()
+        try await repository.setBranchMetadata(["owner": .string("alice")])
+        try await repository.setBranchMetadata(["reviewed": .boolean(true)], of: "main")
+        #expect(try await repository.branchMetadata(forKey: "owner") == .string("alice"))
+        #expect(try await repository.branchMetadata(of: "main")["reviewed"] == .boolean(true))
+
+        try await repository.clearBranchMetadata(keys: ["owner"])
+        let cleared = try await repository.branchMetadata()
+        #expect(cleared["owner"] == nil)
+        #expect(cleared["reviewed"] == .boolean(true))
+
+        try await repository.clearBranchMetadata(of: "main")
+        let all = try await repository.branchMetadata()
+        #expect(all["reviewed"] == nil)
+        #expect(all["name"] == .string("main"))
+    }
+
     @Test func restoreCommitsAnEarlierRevision() async throws {
         let (repository, _) = try await makePublishedRepository()
         try repository.write("hello again\n", to: "a.txt")
@@ -164,5 +182,41 @@ import Testing
         let status = try await repository.status()
         #expect(status.revision == restored.id)
         #expect(status.remoteRevision == restored.id)
+    }
+
+    @Test func protectedBranchRefusesPushes() async throws {
+        let (repository, _) = try await makePublishedRepository()
+        try await repository.protectBranch(named: "main")
+        try repository.write("hello again\n", to: "a.txt")
+        try await repository.stage(["a.txt"])
+        try await repository.commit(message: "Second")
+        let error = await #expect(throws: LoreError.self) {
+            try await repository.push()
+        }
+        #expect(error?.code == .notAuthorized)
+
+        try await repository.unprotectBranch(named: "main")
+        #expect(try await repository.push().revisionNumber == 2)
+        let info = try await repository.branchInfo()
+        #expect(info.remoteLatestRevision == info.latestRevision)
+    }
+
+    @Test func archivedBranchesLeaveTheServerListing() async throws {
+        let (repository, url) = try await makePublishedRepository()
+        try await repository.createBranch(named: "feature")
+        try await repository.switchBranch(to: "feature")
+        try repository.write("feature\n", to: "a.txt")
+        try await repository.stage(["a.txt"])
+        try await repository.commit(message: "Feature")
+        try await repository.push()
+        try await repository.switchBranch(to: "main")
+        try await repository.archiveBranch(named: "feature")
+
+        let clone = try await Repository.clone(
+            from: url,
+            to: temporaryRepositoryPath("clone"),
+            options: Repository.Options(identity: "bob@example.com")
+        )
+        #expect(try await clone.branches().map(\.name) == ["main", "main"])
     }
 }
