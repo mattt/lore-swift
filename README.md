@@ -175,6 +175,18 @@ print("Locked", result.acquired)
 try await repository.unlock(["hero.png"])
 ```
 
+### Logging in
+
+```swift
+let user = try await Authentication.logIn(token: token, server: "lore://lore.example.com:41337")
+print("Logged in as", user.name)
+
+try await repository.logOut()
+```
+
+`Authentication.logInInteractively(server:)` streams a URL
+for the user to open and approve, instead of opening a browser.
+
 ### Handling errors
 
 Failures throw `LoreError`:
@@ -225,10 +237,11 @@ so it must return promptly.
 | Files | `lore_file_history_async`, `lore_file_info_async`, `lore_file_diff_async` | `history(of:from:on:limit:)`, `fileInfo(of:revision:)`, `diff(of:from:to:contextLines:ignoringTrailingWhitespace:ignoringWhitespaceChanges:)` |
 | File metadata | `lore_file_metadata_get_async`, `lore_file_metadata_list_async`, `lore_file_metadata_set_async`, `lore_file_metadata_clear_async` | `metadata(forKey:of:revision:)`, `metadata(of:revision:)`, `setMetadata(_:of:)`, `clearMetadata(of:)` |
 | File dependencies | `lore_file_dependency_add_async`, `lore_file_dependency_list_async`, `lore_file_dependency_remove_async` | `addDependencies(_:to:tags:allowingCycles:)`, `dependencies(of:revision:recursive:tags:depthLimit:)`, `dependents(of:revision:recursive:tags:depthLimit:)`, `removeDependencies(_:from:)` |
+| Authentication | `lore_auth_login_with_token_async`, `lore_auth_login_interactive_async`, `lore_auth_logout_async`, `lore_auth_clear_async`, `lore_auth_list_async`, `lore_auth_user_info_async`, `lore_auth_local_user_info_async` | `Authentication.logIn(token:type:server:authenticationURL:)`, `Authentication.logInInteractively(server:)`, `Authentication.logOut(from:user:resource:)`, `Authentication.removeAllCredentials()`, `Authentication.credentials(includingTokens:)`, `Authentication.localUsers(withIDs:authenticationURL:includingTokens:)`, `logIn(token:type:)`, `logInInteractively()`, `logOut(user:resource:)`, `users(withIDs:)`, `localUsers(withIDs:includingTokens:)`, `accessCredential()` |
 | Locks | `lore_lock_file_acquire_async`, `lore_lock_file_release_async`, `lore_lock_file_status_async`, `lore_lock_file_query_async` | `lock(_:branch:)`, `unlock(_:branch:)`, `locks(on:branch:)`, `locks(branch:owner:path:)` |
 
 The binding doesn't cover the rest of the C API,
-such as authentication, links, layers, and the storage API.
+such as links, layers, and the storage API.
 The methods that set metadata can't set binary or address values.
 
 ## Development
@@ -241,7 +254,9 @@ $ swift test
 
 ### Integration tests
 
-The integration tests run against a local `loreserver`:
+The integration tests run against two local servers.
+One requires tokens from a stub identity provider,
+which runs with the system Python 3:
 
 ```console
 $ Scripts/fetch-loreserver.sh

@@ -15,10 +15,15 @@ let scratchDirectory = URL(filePath: #filePath)
 ///
 /// Every test that calls into the library must evaluate this first,
 /// because the library reads `HOME` when it first needs its user directory.
+///
+/// It also keeps the library's token store in the scratch directory,
+/// with its encryption key in a file there instead of the login keychain.
 let isolatedHome: String = {
     let home = scratchDirectory.appending(path: "test-home").path
     try? FileManager.default.createDirectory(atPath: home, withIntermediateDirectories: true)
     setenv("HOME", home, 1)
+    setenv("LORE_AUTH_STORE", "fallback", 1)
+    setenv("LORE_AUTH_PATH", "\(home)/auth", 1)
     return home
 }()
 
@@ -30,6 +35,15 @@ extension Trait where Self == ConditionTrait {
     /// for tests that need a local server.
     static var integration: Self {
         .enabled(if: ProcessInfo.processInfo.environment["LORE_INTEGRATION"] == "1", "Set LORE_INTEGRATION=1")
+    }
+
+    /// Enables a test only when `LORE_AUTHENTICATED_SERVER_URL` is set,
+    /// for tests that need a local server that requires tokens.
+    static var authenticatedServer: Self {
+        .enabled(
+            if: ProcessInfo.processInfo.environment["LORE_AUTHENTICATED_SERVER_URL"] != nil,
+            "Set LORE_AUTHENTICATED_SERVER_URL"
+        )
     }
 }
 
