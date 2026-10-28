@@ -27,8 +27,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      - name: Fetch the Lore library and server
-        run: Scripts/fetch-liblore.sh --with-server
+      - name: Fetch the Lore server
+        run: Scripts/fetch-loreserver.sh
 
       - name: Lint
         run: swift format lint --strict --recursive .

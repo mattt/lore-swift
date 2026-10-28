@@ -91,7 +91,6 @@ extension Library {
         level: LogLevel = .info,
         _ handler: (@Sendable (LogEntry) -> Void)?
     ) throws {
-        LogHandler.current.withLock { $0 = handler }
         let arena = Arena()
         let configuration = arena.allocate(lore_log_config_t.self)
         configuration.pointee.level = handler == nil ? LORE_LOG_LEVEL_NONE : level.cValue
@@ -101,6 +100,7 @@ extension Library {
         if status != 0 {
             throw LoreError(code: .init(rawValue: status))
         }
+        LogHandler.current.withLock { $0 = handler }
     }
 }
 
