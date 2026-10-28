@@ -7,13 +7,6 @@ Epic Games' version control system.
 > This package is an early prototype.
 > Its API may change.
 
-The package wraps the same C library as the official SDKs
-for [Go](https://github.com/EpicGames/lore-go),
-[JavaScript](https://github.com/EpicGames/lore-js),
-[Python](https://github.com/EpicGames/lore-python),
-and [C#](https://github.com/EpicGames/lore-dotnet),
-and follows their names where they fit Swift.
-
 ## Requirements
 
 - Swift 6.2+ / Xcode 26+
@@ -41,17 +34,8 @@ And add the `Lore` product to your target:
 )
 ```
 
-The package links against the Lore C library
-through a binary target.
-SwiftPM downloads `liblore.xcframework.zip`
-from the [liblore-0.11.0 release](https://github.com/mattt/lore-swift/releases/tag/liblore-0.11.0)
-of this repository
-and checks it against the checksum in `Package.swift`.
-The XCFramework holds `liblore.dylib` and `lore.h`
-from the [Lore 0.11.0 release](https://github.com/EpicGames/lore/releases/tag/v0.11.0),
-unchanged.
-SwiftPM copies `liblore.dylib` next to the products it builds,
-with Epic Games' code signature intact.
+SwiftPM downloads the Lore C library as an XCFramework
+from the [releases](https://github.com/mattt/lore-swift/releases) of this repository.
 
 ## Usage
 
@@ -71,11 +55,7 @@ The `name` is the URL of the repository on a server.
 To work without a server,
 set `isOffline` in the options;
 the `name` then names the repository.
-
-Every operation is an `async` method on `Repository`
-that returns when the library reports that the operation has ended.
-Paths that you pass to these methods
-are relative to the repository directory.
+Paths are relative to the repository directory.
 
 ### Staging and committing
 
@@ -120,10 +100,9 @@ for try await update in repository.pushUpdates() {
 }
 ```
 
-The library can't cancel an operation once it starts,
-so an operation finishes even if the calling task is cancelled.
+Operations can't be cancelled once they start.
 Cancelling the task that iterates a stream ends the iteration,
-but the operation keeps running until the library ends it.
+but not the operation.
 
 ### Naming revisions
 
@@ -179,9 +158,8 @@ try await repository.unlock(["hero.png"])
 
 ### Handling errors
 
-Failures throw `LoreError`,
-which carries the library's error code, message, and trace.
-Match on the code to handle a specific failure:
+Failures throw `LoreError`.
+Match on its code to handle a specific failure:
 
 ```swift
 do {
@@ -204,29 +182,27 @@ so it must return promptly.
 
 ## Coverage
 
-| Area | C API | Swift API | Tests |
-| --- | --- | --- | --- |
-| Version | `lore_version`, `LORE_INTERFACE_VERSION`, `lore_user_directory` | `Library.version`, `Library.interfaceVersion`, `Library.userDirectory` | Unit |
-| Logging | `lore_log_configure`, `LORE_EVENT_LOG` | `Library.setLogHandler(level:_:)` | Offline |
-| Shutdown | `lore_shutdown` | `Library.shutdown()` | None |
-| Errors | `LORE_EVENT_COMPLETE`, `lore_error_detail_t` | `LoreError` | Unit, offline |
-| Create | `lore_repository_create_async` | `Repository.create(at:name:description:options:)` | Offline, server |
-| Clone | `lore_repository_clone_async` | `Repository.clone(from:to:revision:options:)`, `cloneUpdates` | Server |
-| Status | `lore_repository_status_async` | `status(of:scanning:)` | Offline, server |
-| Stage | `lore_file_stage_async` | `stage(_:scanning:)` | Offline |
-| Commit | `lore_revision_commit_async` | `commit(message:)` | Offline |
-| Push | `lore_branch_push_async` | `push(branch:allowingFastForward:)`, `pushUpdates` | Server |
-| Sync | `lore_revision_sync_async` | `sync(to:discardingLocalChanges:)`, `syncUpdates` | Offline, server |
-| Branches | `lore_branch_list_async`, `lore_branch_create_async`, `lore_branch_switch_async` | `branches(includingArchived:)`, `createBranch(named:category:)`, `switchBranch(to:revision:discardingLocalChanges:)` | Offline, server |
-| File metadata | `lore_file_metadata_get_async`, `lore_file_metadata_set_async` | `metadata(forKey:of:revision:)`, `setMetadata(_:of:)` | Offline |
-| File dependencies | `lore_file_dependency_add_async`, `lore_file_dependency_list_async` | `addDependencies(_:to:tags:allowingCycles:)`, `dependencies(of:revision:recursive:tags:depthLimit:)`, `dependents(of:revision:recursive:tags:depthLimit:)` | Offline |
-| Locks | `lore_lock_file_acquire_async`, `lore_lock_file_release_async`, `lore_lock_file_status_async`, `lore_lock_file_query_async` | `lock(_:branch:)`, `unlock(_:branch:)`, `locks(on:branch:)`, `locks(branch:owner:path:)` | Offline, server |
+| Area | C API | Swift API |
+| --- | --- | --- |
+| Version | `lore_version`, `LORE_INTERFACE_VERSION`, `lore_user_directory` | `Library.version`, `Library.interfaceVersion`, `Library.userDirectory` |
+| Logging | `lore_log_configure`, `LORE_EVENT_LOG` | `Library.setLogHandler(level:_:)` |
+| Shutdown | `lore_shutdown` | `Library.shutdown()` |
+| Errors | `LORE_EVENT_COMPLETE`, `lore_error_detail_t` | `LoreError` |
+| Create | `lore_repository_create_async` | `Repository.create(at:name:description:options:)` |
+| Clone | `lore_repository_clone_async` | `Repository.clone(from:to:revision:options:)`, `cloneUpdates` |
+| Status | `lore_repository_status_async` | `status(of:scanning:)` |
+| Stage | `lore_file_stage_async` | `stage(_:scanning:)` |
+| Commit | `lore_revision_commit_async` | `commit(message:)` |
+| Push | `lore_branch_push_async` | `push(branch:allowingFastForward:)`, `pushUpdates` |
+| Sync | `lore_revision_sync_async` | `sync(to:discardingLocalChanges:)`, `syncUpdates` |
+| Branches | `lore_branch_list_async`, `lore_branch_create_async`, `lore_branch_switch_async` | `branches(includingArchived:)`, `createBranch(named:category:)`, `switchBranch(to:revision:discardingLocalChanges:)` |
+| File metadata | `lore_file_metadata_get_async`, `lore_file_metadata_set_async` | `metadata(forKey:of:revision:)`, `setMetadata(_:of:)` |
+| File dependencies | `lore_file_dependency_add_async`, `lore_file_dependency_list_async` | `addDependencies(_:to:tags:allowingCycles:)`, `dependencies(of:revision:recursive:tags:depthLimit:)`, `dependents(of:revision:recursive:tags:depthLimit:)` |
+| Locks | `lore_lock_file_acquire_async`, `lore_lock_file_release_async`, `lore_lock_file_status_async`, `lore_lock_file_query_async` | `lock(_:branch:)`, `unlock(_:branch:)`, `locks(on:branch:)`, `locks(branch:owner:path:)` |
 
 The binding doesn't yet cover the rest of the C API,
 such as authentication, merges, history, links, layers, and the storage API.
-`setMetadata(_:of:)` can't set binary or address values;
-in Lore 0.11.0,
-`lore_file_metadata_set` reads the value of a binary entry as a file path.
+`setMetadata(_:of:)` can't set binary or address values.
 
 ## Development
 
@@ -236,29 +212,14 @@ in Lore 0.11.0,
 $ swift test
 ```
 
-The unit tests need no server:
-they run local operations on offline repositories in `.scratch/`.
-The tests set `HOME` to `.scratch/test-home`,
-so the library keeps its per-user data out of your home directory.
-
 ### Integration tests
 
-The integration tests run against a local `loreserver`.
-Fetch the server,
-then run the tests with the integration script:
+The integration tests run against a local `loreserver`:
 
 ```console
 $ Scripts/fetch-loreserver.sh
 $ Scripts/run-integration-tests.sh
 ```
-
-The script starts the server on 127.0.0.1,
-with port 43537 for QUIC and gRPC and port 43539 for HTTP,
-keeps its stores and logs in `.scratch/integration/`,
-runs `swift test` with `LORE_INTEGRATION=1`,
-and stops the server when the tests end.
-The server runs with authentication off,
-and the tests use the unencrypted `lore://` scheme.
 
 ### Updating the Lore library
 
@@ -287,4 +248,3 @@ This project is available under the MIT license.
 See the LICENSE file for more info.
 
 The Lore library is available under the MIT license from Epic Games.
-The XCFramework includes its `LICENSE.txt` and `THIRD-PARTY-NOTICES.txt` files.
