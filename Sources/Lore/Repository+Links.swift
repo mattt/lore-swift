@@ -150,7 +150,9 @@ extension Repository {
     /// Lore deletes the linked files from the working directory
     /// and stages the removal for the next commit.
     /// Removing a link that you added since the last commit
-    /// unstages the link instead.
+    /// unstages the link instead,
+    /// but leaves the directories that adding it created,
+    /// and the parent directories that adding it staged stay staged.
     ///
     /// - Parameter path: The path where the link is mounted,
     ///   relative to the repository directory.

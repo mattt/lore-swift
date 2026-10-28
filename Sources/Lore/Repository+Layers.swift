@@ -116,7 +116,7 @@ extension Repository {
     ///   if the layer's files have changes and `discardingLocalChanges` is `false`.
     public func removeLayer(
         at path: String,
-        from repository: String? = nil,
+        sourceRepository repository: String? = nil,
         deletingUntrackedFiles: Bool = false,
         discardingLocalChanges: Bool = false
     ) async throws {
@@ -136,7 +136,7 @@ extension Repository {
     ///
     /// The list works offline.
     ///
-    /// - Returns: The layers, in the order that they were added.
+    /// - Returns: The layers, in the order that the library reports them.
     /// - Throws: ``LoreError`` if the library can't list the layers.
     public func layers() async throws -> [Layer] {
         try await perform(

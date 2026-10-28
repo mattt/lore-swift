@@ -193,8 +193,9 @@ for the user to open and approve, instead of opening a browser.
 try await repository.addLink(to: "lore://127.0.0.1:41337/library", at: "vendor/library")
 try await repository.commit(message: "Link the library")
 
-try await repository.updateLink(at: "vendor/library")
-try await repository.commit(message: "Update the library")
+if try await repository.updateLink(at: "vendor/library") != nil {
+    try await repository.commit(message: "Update the library")
+}
 ```
 
 ### Handling errors
@@ -250,7 +251,7 @@ so it must return promptly.
 | Authentication | `lore_auth_login_with_token_async`, `lore_auth_login_interactive_async`, `lore_auth_logout_async`, `lore_auth_clear_async`, `lore_auth_list_async`, `lore_auth_user_info_async`, `lore_auth_local_user_info_async` | `Authentication.logIn(token:type:server:)`, `Authentication.logIn(token:type:authenticationURL:)`, `Authentication.logInInteractively(server:)`, `Authentication.logOut(authenticationURL:userID:resource:)`, `Authentication.removeAllCredentials()`, `Authentication.credentials(includingTokens:)`, `Authentication.localUsers(withIDs:authenticationURL:includingTokens:)`, `logIn(token:type:)`, `logInInteractively()`, `logOut(userID:resource:)`, `users(withIDs:)`, `localUsers(withIDs:includingTokens:)`, `accessCredential()` |
 | Locks | `lore_lock_file_acquire_async`, `lore_lock_file_release_async`, `lore_lock_file_status_async`, `lore_lock_file_query_async` | `lock(_:branch:)`, `unlock(_:branch:)`, `locks(on:branch:)`, `locks(branch:owner:path:)` |
 | Links | `lore_link_add_async`, `lore_link_remove_async`, `lore_link_update_async`, `lore_link_list_async`, `lore_link_info_async`, `lore_link_list_staged_async` | `addLink(to:at:sourcePath:pinnedTo:creatingBranches:)`, `removeLink(at:)`, `updateLink(at:to:)`, `links()`, `linkInfo(at:)`, `stagedLinks()` |
-| Layers | `lore_layer_add_async`, `lore_layer_remove_async`, `lore_layer_list_async` | `addLayer(from:at:sourcePath:matchingMetadataKey:)`, `removeLayer(at:from:deletingUntrackedFiles:discardingLocalChanges:)`, `layers()` |
+| Layers | `lore_layer_add_async`, `lore_layer_remove_async`, `lore_layer_list_async` | `addLayer(from:at:sourcePath:matchingMetadataKey:)`, `removeLayer(at:sourceRepository:deletingUntrackedFiles:discardingLocalChanges:)`, `layers()` |
 
 The binding doesn't cover the rest of the C API,
 such as revision trees and the storage API.

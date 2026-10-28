@@ -150,14 +150,19 @@ import Testing
             linkMessages: ["vendor/library": "Change the library from the app"]
         )
         #expect(revision.message == "Change the app and the library")
-        #expect(try await app.status().revision == revision.id)
+        #expect(revision.number == 3)
+        #expect(try await app.revision() == revision)
         #expect(try await app.stagedLinks().isEmpty)
-        try await app.push()
+        // The push also pushes the linked revision; the result describes the app.
+        let push = try await app.push()
+        #expect(push.revision == revision.id)
+        #expect(push.revisionNumber == 3)
 
         try await library.sync()
         #expect(try library.read("x.txt") == "x from app\n")
         let history = try await library.history(limit: 1)
         #expect(history.first?.message == "Change the library from the app")
+        #expect(history.first?.number == 2)
         #expect(try await app.links().first?.revision == history.first?.id)
 
         // Without a message for the link, the linked revision gets the commit message.
@@ -197,6 +202,14 @@ import Testing
         try await app.removeLink(at: "vendor/library")
         #expect(!FileManager.default.fileExists(atPath: "\(app.path)/vendor/library/x.txt"))
         #expect(try await app.links().isEmpty)
+        let info = await #expect(throws: LoreError.self) {
+            try await app.linkInfo(at: "vendor/library")
+        }
+        #expect(info?.code == .nodeNotFound)
+        // The directories that the addition created stay, and the parent stays staged.
+        let files = try await app.status().files
+        #expect(files.map(\.path) == ["vendor", "vendor/library"])
+        #expect(files.map(\.isStaged) == [true, false])
     }
 
     @Test func linkASubdirectoryPinnedToARevision() async throws {
@@ -262,6 +275,8 @@ import Testing
         #expect(result.sourceRevision == feature.id)
         #expect(result.conflicts.isEmpty)
         #expect(result.revision?.message == "Merge feature")
+        #expect(result.revision?.metadata["merged-by"] == .string("alice@example.com"))
+        #expect(try await app.revision() == result.revision)
         #expect(try app.read("a.txt") == "a feature\n")
         #expect(try app.read("vendor/library/x.txt") == "x feature\n")
         try await app.push()
@@ -294,12 +309,91 @@ import Testing
         #expect(try app.read("vendor/library/x.txt") == "x1\n")
         #expect(try await app.links().first?.revision == pin)
 
-        // Lore 0.11.0 can't archive a branch in links that you never switched to.
+        // Online, Lore 0.11.0 can't archive a branch that you never switched to,
+        // with or without links.
         try await app.createBranch(named: "unused")
-        let error = await #expect(throws: LoreError.self) {
+        try await app.push(branch: "unused")
+        let alone = await #expect(throws: LoreError.self) {
+            try await app.archiveBranch(named: "unused")
+        }
+        #expect(alone?.code == .branchNotFound)
+        let inLinks = await #expect(throws: LoreError.self) {
             try await app.archiveBranch(named: "unused", includingLinks: true)
         }
-        #expect(error?.code == .branchNotFound)
+        #expect(inLinks?.code == .branchNotFound)
+    }
+
+    @Test func aMergeWithAConflictInThisRepositoryAndNotInALink() async throws {
+        let (library, app, url) = try await makeLibraryAndApp()
+        try await app.addLink(to: url, at: "vendor/library")
+        try await app.commit(message: "Link the library")
+        try await app.push()
+        try await app.createBranch(named: "feature")
+        try await app.switchBranch(to: "feature")
+        try app.write("a feature\n", to: "a.txt")
+        try app.write("x feature\n", to: "vendor/library/x.txt")
+        try await app.stage(["."])
+        let feature = try await app.commit(message: "Feature")
+        try await app.push()
+        try await app.switchBranch(to: "main")
+        try app.write("a main\n", to: "a.txt")
+        try await app.stage(["a.txt"])
+        try await app.commit(message: "Main")
+
+        // The library merges the link first, without a conflict, and doesn't commit it.
+        let result = try await app.mergeBranch(named: "feature", message: "Merge feature")
+        #expect(result.sourceRevision == feature.id)
+        #expect(result.conflicts == ["a.txt"])
+        #expect(result.revision == nil)
+        #expect(try app.read("vendor/library/x.txt") == "x feature\n")
+
+        try await app.resolveConflicts(in: ["a.txt"], keeping: .theirs)
+        let merge = try await app.commit(message: "Merge feature")
+        #expect(merge.parents.last == feature.id)
+        #expect(try await app.revision() == merge)
+        let push = try await app.push()
+        #expect(push.revision == merge.id)
+        try await library.sync()
+        #expect(try library.read("x.txt") == "x feature\n")
+    }
+
+    @Test func aMergeWithAConflictInALinkAndNotInThisRepository() async throws {
+        let (_, app, url) = try await makeLibraryAndApp()
+        try await app.addLink(to: url, at: "vendor/library")
+        try await app.commit(message: "Link the library")
+        try await app.push()
+        try await app.createBranch(named: "feature")
+        try await app.switchBranch(to: "feature")
+        try app.write("b feature\n", to: "b.txt")
+        try app.write("x feature\n", to: "vendor/library/x.txt")
+        try await app.stage(["."])
+        let feature = try await app.commit(message: "Feature")
+        try await app.push()
+        try await app.switchBranch(to: "main")
+        try app.write("x main\n", to: "vendor/library/x.txt")
+        try await app.stage(["."])
+        try await app.commit(message: "Main")
+
+        // Lore 0.11.0 stops at the conflict in the link
+        // before it merges this repository.
+        let result = try await app.mergeBranch(named: "feature", message: "Merge feature")
+        #expect(result.sourceRevision == nil)
+        #expect(result.conflicts == ["vendor/library/x.txt"])
+        #expect(result.revision == nil)
+        #expect(!FileManager.default.fileExists(atPath: "\(app.path)/b.txt"))
+
+        #expect(try await app.resolveConflicts(in: ["vendor/library/x.txt"], keeping: .theirs).count == 1)
+        #expect(try app.read("vendor/library/x.txt") == "x feature\n")
+        let pin = try await app.commit(message: "Merge feature into the library")
+        #expect(pin.parents.count == 1)
+        #expect(try await app.revision() == pin)
+
+        // Merging again merges this repository.
+        let again = try await app.mergeBranch(named: "feature", message: "Merge feature")
+        #expect(again.sourceRevision == feature.id)
+        #expect(again.conflicts.isEmpty)
+        #expect(again.revision?.parents == [pin.id, feature.id])
+        #expect(try app.read("b.txt") == "b feature\n")
     }
 
     @Test func layerFilesStayOnThisMachine() async throws {
@@ -329,10 +423,15 @@ import Testing
         }
         #expect(byURL?.code == .notFound)
 
+        let missingSource = await #expect(throws: LoreError.self) {
+            try await app.addLayer(from: name, at: "other", sourcePath: "missing")
+        }
+        #expect(missingSource?.code == .nodeNotFound)
+
         let sub = try await app.addLayer(from: libraryID.description, at: "overlay-sub", sourcePath: "sub")
         #expect(sub.sourcePath == "sub")
         #expect(try app.read("overlay-sub/y.txt") == "y1\n")
-        #expect(try await app.layers().map(\.path) == ["overlay", "overlay-sub"])
+        #expect(try await app.layers() == [layer, sub])
 
         try app.write("a2\n", to: "a.txt")
         try await app.stage(["a.txt"])
@@ -356,18 +455,39 @@ import Testing
 
         try app.write("x from the layer\n", to: "overlay/x.txt")
         try await app.stage(["overlay/x.txt"])
-        let revision = try await app.commit(message: "Change the layer")
-        try await app.push()
         // With only files of a layer staged, this repository gets no revision.
-        #expect(try await app.revision().id == appRevision.id)
+        let revision = try await app.commit(message: "Change the layer")
+        #expect(revision == appRevision)
+        let push = try await app.push()
+        #expect(push.revision == nil)
+        #expect(push.wasAlreadyPushed)
 
         try await library.sync()
         #expect(try library.read("x.txt") == "x from the layer\n")
         let history = try await library.history(limit: 1)
         #expect(history.first?.message == "Change the layer")
-        #expect(revision.id == history.first?.id)
-        #expect(revision.metadata.isEmpty)
-        #expect(try await app.layers().first?.revision == revision.id)
+        #expect(try await app.layers().first?.revision == history.first?.id)
+    }
+
+    @Test func committingInThisRepositoryAndALayer() async throws {
+        let (library, app, url) = try await makeLibraryAndApp()
+        let name = try #require(URL(string: url)?.lastPathComponent)
+        try await app.addLayer(from: name, at: "overlay")
+
+        // The library reports the layer's revision after this repository's.
+        try app.write("a2\n", to: "a.txt")
+        try app.write("x from the layer\n", to: "overlay/x.txt")
+        try await app.stage(["."])
+        let revision = try await app.commit(message: "Change the app and the layer")
+        #expect(revision.number == 2)
+        #expect(revision.message == "Change the app and the layer")
+        #expect(try await app.revision() == revision)
+        let push = try await app.push()
+        #expect(push.revision == revision.id)
+        #expect(push.revisionNumber == 2)
+
+        try await library.sync()
+        #expect(try library.read("x.txt") == "x from the layer\n")
     }
 
     @Test func aLayerMatchesRevisionsByMetadata() async throws {
@@ -385,6 +505,7 @@ import Testing
         let layer = try await app.addLayer(from: name, at: "overlay", matchingMetadataKey: "build")
         #expect(layer.metadataKey == "build")
         #expect(layer.revision == matching.id)
+        #expect(try await app.layers() == [layer])
         #expect(try app.read("overlay/x.txt") == "x for build 7\n")
     }
 
@@ -423,7 +544,7 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: "\(app.path)/overlay"))
 
         try app.write("untracked\n", to: "overlay-sub/untracked.txt")
-        try await app.removeLayer(at: "overlay-sub", from: name)
+        try await app.removeLayer(at: "overlay-sub", sourceRepository: name)
         #expect(!FileManager.default.fileExists(atPath: "\(app.path)/overlay-sub/y.txt"))
         #expect(try app.read("overlay-sub/untracked.txt") == "untracked\n")
         #expect(try await app.layers().isEmpty)

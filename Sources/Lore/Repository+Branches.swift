@@ -247,9 +247,10 @@ extension Repository {
     ///   such as ``LoreError/Code/branchNotFound``.
     ///   The library refuses to archive the current branch
     ///   and reports that with ``LoreError/Code/branchNotFound``.
-    ///   In Lore 0.11.0, `includingLinks` also fails
-    ///   with ``LoreError/Code/branchNotFound``
-    ///   for a branch that you never switched to.
+    ///   Unless the repository is offline,
+    ///   Lore 0.11.0 also reports ``LoreError/Code/branchNotFound``
+    ///   for a branch that you never switched to,
+    ///   with or without `includingLinks`.
     public func archiveBranch(
         named name: String,
         includingLinks: Bool = false,
