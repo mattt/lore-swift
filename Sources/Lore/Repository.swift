@@ -80,8 +80,11 @@ extension Repository {
     ///
     /// The working directory is the repository directory,
     /// so the library resolves relative paths against it.
-    func globals(in arena: Arena) -> UnsafeMutablePointer<lore_global_args_t> {
+    /// Set `force` for an operation that refuses to discard local changes
+    /// unless the library's global `force` flag is set.
+    func globals(in arena: Arena, force: Bool = false) -> UnsafeMutablePointer<lore_global_args_t> {
         let globals = arena.allocate(lore_global_args_t.self)
+        globals.pointee.force = UInt8(force)
         globals.pointee.repository_path = arena.string(path)
         globals.pointee.working_directory = arena.string(path)
         globals.pointee.identity = arena.string(options.identity)
@@ -99,11 +102,12 @@ extension Repository {
             UnsafePointer<Arguments>?,
             lore_event_callback_config_t
         ) -> Void,
+        force: Bool = false,
         configure: (UnsafeMutablePointer<Arguments>, Arena) -> Void = { _, _ in },
         transform: @escaping EventTransform<Event>
     ) async throws -> [Event] {
         let arena = Arena()
-        let globals = globals(in: arena)
+        let globals = globals(in: arena, force: force)
         let arguments = arena.allocate(Arguments.self)
         configure(arguments, arena)
         return try await Lore.perform(transform) { callback in
