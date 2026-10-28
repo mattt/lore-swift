@@ -27,6 +27,8 @@ readonly AUTH_PORT=43547
 readonly AUTH_HTTP_PORT=43549
 readonly PROVIDER_PORT=43551
 readonly ISSUER="http://$HOST:$PROVIDER_PORT"
+# How long to wait for each server and the provider to answer.
+readonly READY_TIMEOUT=30
 
 package_root="$(cd "$(dirname "$0")/.." && pwd)"
 server="$package_root/Vendor/loreserver/loreserver"
@@ -73,20 +75,28 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# Waits until a URL answers, or fails if the process with the given ID exits.
+# Waits until a URL answers.
+# Fails at once if the process with the given ID exits,
+# or after $READY_TIMEOUT seconds if the URL still doesn't answer,
+# and prints the end of the process's log.
+# The logs can't contain a token at this point, because the tests haven't started,
+# and the signing key is never in them.
 wait_for() {
-    local url="$1" pid="$2" log="$3"
-    for _ in $(seq 1 50); do
-        if curl --silent --fail --connect-timeout 1 --max-time 2 --output /dev/null "$url"; then
-            return 0
-        fi
+    local url="$1" pid="$2" log="$3" problem=""
+    local deadline=$((SECONDS + READY_TIMEOUT))
+    until curl --silent --fail --connect-timeout 1 --max-time 2 --output /dev/null "$url"; do
         if ! kill -0 "$pid" 2>/dev/null; then
-            break
+            problem="process $pid exited before $url answered"
+        elif [ "$SECONDS" -ge "$deadline" ]; then
+            problem="$url did not answer within $READY_TIMEOUT seconds"
+        else
+            sleep 0.2
+            continue
         fi
-        sleep 0.2
+        echo "error: $problem; the end of $log follows" >&2
+        tail -n 20 "$log" | sed 's/^/    /' >&2 || true
+        exit 1
     done
-    echo "error: $url did not answer; see $log" >&2
-    exit 1
 }
 
 # Writes a server configuration that listens on the given ports
@@ -126,9 +136,6 @@ start_server() {
     echo "loreserver ($name) is running (pid $!); logs in $run/$name/server.log"
 }
 
-write_config "$run/open/config" "$PORT" "$HTTP_PORT" "$run/open/store"
-start_server open "$HTTP_PORT"
-
 # The provider publishes the public half of a P-256 key
 # in its discovery document's key set.
 # Only this user can read the private key,
@@ -158,10 +165,18 @@ cat >"$provider/files/.well-known/openid-configuration" <<EOF
   "token_endpoint": "$ISSUER/token"
 }
 EOF
+# The provider can take seconds to answer on a CI runner,
+# so it starts first and the open server starts while it does.
 /usr/bin/python3 "$package_root/Scripts/identity-provider.py" "$PROVIDER_PORT" "$provider/files" \
     >"$provider/provider.log" 2>&1 &
-pids="$pids $!"
-wait_for "$ISSUER/.well-known/openid-configuration" "$!" "$provider/provider.log"
+provider_pid=$!
+pids="$pids $provider_pid"
+
+write_config "$run/open/config" "$PORT" "$HTTP_PORT" "$run/open/store"
+start_server open "$HTTP_PORT"
+
+wait_for "$ISSUER/.well-known/openid-configuration" "$provider_pid" "$provider/provider.log"
+echo "identity provider is running (pid $provider_pid); logs in $provider/provider.log"
 
 # The server verifies tokens against the provider's key set
 # and lets any valid token reach every repository.
