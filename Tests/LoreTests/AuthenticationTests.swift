@@ -110,13 +110,17 @@ import Testing
         )
         #expect(try await Authentication.credentials().map(\.userID).sorted() == ["alice", "bob", "carol"])
 
-        try await Authentication.logOut(from: authenticationURL, userID: "alice")
+        // A URL that names no stored credentials, such as a server's, removes nothing.
+        try await Authentication.logOut(authenticationURL: "lore://auth.example.test:41337")
+        #expect(try await Authentication.credentials().count == 3)
+
+        try await Authentication.logOut(authenticationURL: authenticationURL, userID: "alice")
         #expect(try await Authentication.credentials().map(\.userID).sorted() == ["bob", "carol"])
 
-        try await Authentication.logOut(from: authenticationURL, resource: "unknown")
+        try await Authentication.logOut(authenticationURL: authenticationURL, resource: "unknown")
         #expect(try await Authentication.credentials().map(\.userID) == ["carol"])
 
-        try await Authentication.logOut(from: authenticationURL)
+        try await Authentication.logOut(authenticationURL: authenticationURL)
         try await Authentication.removeAllCredentials()
         #expect(try await Authentication.credentials().isEmpty)
     }
@@ -152,7 +156,7 @@ import Testing
                 for try await _ in Authentication.logInInteractively(server: "") {}
             },
             await #expect(throws: LoreError.self) {
-                try await Authentication.logOut(from: "")
+                try await Authentication.logOut(authenticationURL: "")
             },
             await #expect(throws: LoreError.self) {
                 try await Authentication.localUsers(authenticationURL: "")

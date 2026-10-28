@@ -303,8 +303,14 @@ extension Authentication {
 
     /// Removes stored credentials for an authentication service.
     ///
+    /// The library removes nothing, and doesn't throw,
+    /// if it has no credentials for the URL.
+    ///
     /// - Parameters:
-    ///   - authenticationURL: The URL of the authentication service.
+    ///   - authenticationURL: The URL of the authentication service,
+    ///     as the ``Credential/authenticationURL`` of its credentials gives it,
+    ///     including the `oidc+` prefix for an OpenID Connect provider.
+    ///     A server's URL doesn't match its credentials.
     ///   - userID: The identifier of the user whose credentials to remove,
     ///     or `nil` for every user.
     ///   - resource: The resource whose authorization token to remove,
@@ -315,7 +321,7 @@ extension Authentication {
     ///   or ``LoreError/Code/invalidArguments``
     ///   for an empty authentication URL.
     public static func logOut(
-        from authenticationURL: String,
+        authenticationURL: String,
         userID: String? = nil,
         resource: String? = nil
     ) async throws {
