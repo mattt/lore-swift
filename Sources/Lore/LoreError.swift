@@ -107,6 +107,8 @@ extension LoreError.Code {
     public static let invalidArguments = Self(rawValue: 3)
     /// A path was invalid.
     public static let invalidPath = Self(rawValue: 4)
+    /// A path doesn't name a link.
+    public static let notALink = Self(rawValue: 6)
     /// The operation is not supported.
     public static let notSupported = Self(rawValue: 9)
     /// The caller is not authenticated.
@@ -135,6 +137,8 @@ extension LoreError.Code {
     public static let lockNotOwned = Self(rawValue: 45)
     /// The new metadata is identical to the original.
     public static let identicalMetadata = Self(rawValue: 46)
+    /// The repository is already a layer at the path.
+    public static let alreadyLinked = Self(rawValue: 56)
     /// The branch already exists.
     public static let branchAlreadyExists = Self(rawValue: 57)
     /// A repository already exists at the path.
@@ -143,6 +147,10 @@ extension LoreError.Code {
     public static let notFound = Self(rawValue: 79)
     /// A file was not found.
     public static let fileNotFound = Self(rawValue: 82)
+    /// No file, directory, or link exists at a path.
+    public static let nodeNotFound = Self(rawValue: 83)
+    /// No layer exists at a path.
+    public static let layerNotFound = Self(rawValue: 86)
     /// A branch was not found.
     public static let branchNotFound = Self(rawValue: 87)
     /// A revision was not found.

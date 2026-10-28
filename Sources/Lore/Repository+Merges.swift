@@ -22,7 +22,12 @@ public struct MergeResult: Sendable, Hashable {
     /// The revision that the operation applied:
     /// the latest revision of the merged branch,
     /// or the revision that was reverted or cherry-picked.
-    public var sourceRevision: RevisionID
+    ///
+    /// It's `nil` if a merge stopped at a conflict in a linked repository
+    /// before it merged this repository;
+    /// see ``Repository/mergeBranch(named:message:committing:linkMessages:includingLinks:)``
+    /// for what to do next.
+    public var sourceRevision: RevisionID?
 
     /// The revision that the operation committed,
     /// or `nil` if it left its changes staged
@@ -30,7 +35,8 @@ public struct MergeResult: Sendable, Hashable {
     public var revision: Revision?
 
     /// The paths of the files left in conflict,
-    /// relative to the repository directory.
+    /// relative to the repository directory,
+    /// including files in linked repositories.
     public var conflicts: [String]
 }
 
@@ -85,7 +91,7 @@ extension Repository {
     ///
     /// With `mergingAutomatically` set to `true`,
     /// the conflicts are those that
-    /// ``mergeBranch(named:message:committing:)`` reports
+    /// ``mergeBranch(named:message:committing:linkMessages:includingLinks:)`` reports
     /// when it merges `source` into `target`.
     ///
     /// - Parameters:
@@ -141,7 +147,7 @@ extension Repository {
     /// If no file is in conflict and `committing` is `true`,
     /// the merge commits a revision whose parents are the current revision
     /// and the merged revision.
-    /// Otherwise the merge stays in progress until you ``commit(message:)``
+    /// Otherwise the merge stays in progress until you ``commit(message:linkMessages:)``
     /// or ``abortMerge()``.
     ///
     /// For each file in conflict,
@@ -151,12 +157,30 @@ extension Repository {
     /// Resolve the conflicts with ``resolveConflicts(in:keeping:)``
     /// before you commit.
     ///
+    /// The merge also merges the matching branch
+    /// of each linked repository that follows this repository's branches,
+    /// and a merge revision that it commits there
+    /// has the message for the link in `linkMessages`.
+    ///
+    /// A conflict in a linked repository stops the merge
+    /// before it merges this repository,
+    /// and the result's ``MergeResult/sourceRevision`` is `nil`.
+    /// After you resolve the conflict,
+    /// ``commit(message:linkMessages:)`` commits the merge in the linked repository
+    /// and a revision of this repository with one parent that pins the link.
+    /// Then call this method again to merge this repository.
+    ///
     /// - Parameters:
     ///   - name: The name of the branch to merge.
     ///   - message: The commit message for the merge revision
     ///     if the merge commits,
     ///     or `nil` for an empty message.
     ///   - committing: Whether to commit the merge when no file is in conflict.
+    ///   - linkMessages: Commit messages for the merge revisions
+    ///     of linked repositories,
+    ///     by the path where each link is mounted.
+    ///   - includingLinks: Whether to merge linked repositories.
+    ///     If `false`, each link keeps the revision that it's pinned to.
     /// - Returns: The result of the merge.
     /// - Throws: ``LoreError`` if the library can't merge,
     ///   such as ``LoreError/Code/branchNotFound``.
@@ -167,15 +191,22 @@ extension Repository {
     public func mergeBranch(
         named name: String,
         message: String? = nil,
-        committing: Bool = true
+        committing: Bool = true,
+        linkMessages: [String: String] = [:],
+        includingLinks: Bool = true
     ) async throws -> MergeResult {
-        try MergeEvent.result(
+        try await mergeResult(
+            isBranchMerge: true,
             try await perform(
                 lore_branch_merge_start_async,
                 configure: { (arguments: UnsafeMutablePointer<lore_branch_merge_start_args_t>, arena) in
                     arguments.pointee.branch = arena.string(name)
                     arguments.pointee.message = arena.string(message)
                     arguments.pointee.no_commit = UInt8(!committing)
+                    arguments.pointee.ignore_links = UInt8(!includingLinks)
+                    let links = linkMessages.sorted { $0.key < $1.key }
+                    arguments.pointee.link_paths = arena.strings(links.map(\.key))
+                    arguments.pointee.link_messages = arena.strings(links.map(\.value))
                 },
                 transform: MergeEvent.init
             )
@@ -189,7 +220,8 @@ extension Repository {
     /// The current branch must have been created from another branch,
     /// and it must include the latest revision of the target branch on the server:
     /// if the target branch has moved on,
-    /// merge it into the current branch with ``mergeBranch(named:message:committing:)``
+    /// merge it into the current branch with
+    /// ``mergeBranch(named:message:committing:linkMessages:includingLinks:)``
     /// and commit first.
     /// The working directory stays on the current branch.
     ///
@@ -232,7 +264,7 @@ extension Repository {
     /// it commits a revision whose `reverted-from` metadata value
     /// is the hash of the reverted revision.
     /// Otherwise the revert stays in progress
-    /// until you ``commit(message:)`` or ``abortMerge()``,
+    /// until you ``commit(message:linkMessages:)`` or ``abortMerge()``,
     /// and you resolve its conflicts
     /// with ``resolveConflicts(in:keeping:)``,
     /// where ``MergeSide/theirs`` is the reverted version of a file.
@@ -255,7 +287,8 @@ extension Repository {
         message: String? = nil,
         committing: Bool = true
     ) async throws -> MergeResult {
-        try MergeEvent.result(
+        try await mergeResult(
+            isBranchMerge: false,
             try await perform(
                 lore_revision_revert_async,
                 configure: { (arguments: UnsafeMutablePointer<lore_revision_revert_args_t>, arena) in
@@ -276,7 +309,7 @@ extension Repository {
     /// whose `cherry-picked-from` metadata value
     /// is the hash of the picked revision.
     /// A cherry-pick without conflicts and with `committing` set to `false`
-    /// stays in progress until you ``commit(message:)``,
+    /// stays in progress until you ``commit(message:linkMessages:)``,
     /// which records the same `cherry-picked-from` value.
     ///
     /// Lore 0.11.0 has no functions to resolve or abort a cherry-pick:
@@ -305,7 +338,8 @@ extension Repository {
         message: String? = nil,
         committing: Bool = true
     ) async throws -> MergeResult {
-        try MergeEvent.result(
+        try await mergeResult(
+            isBranchMerge: false,
             try await perform(
                 lore_revision_cherry_pick_async,
                 configure: { (arguments: UnsafeMutablePointer<lore_revision_cherry_pick_args_t>, arena) in
@@ -357,20 +391,22 @@ extension Repository {
     ///   with ``LoreError/Code/internal``.
     @discardableResult
     public func resolveConflicts(in paths: [String], keeping side: MergeSide = .merged) async throws -> [String] {
-        let isRevert = try await isRevertInProgress()
-        switch (side, isRevert) {
-        case (.merged, false):
-            return try await conflictPaths(lore_branch_merge_resolve_async, \.paths, paths)
-        case (.mine, false):
-            return try await conflictPaths(lore_branch_merge_resolve_mine_async, \.paths, paths)
-        case (.theirs, false):
-            return try await conflictPaths(lore_branch_merge_resolve_theirs_async, \.paths, paths)
-        case (.merged, true):
-            return try await conflictPaths(lore_revision_revert_resolve_async, \.paths, paths)
-        case (.mine, true):
-            return try await conflictPaths(lore_revision_revert_resolve_mine_async, \.paths, paths)
-        case (.theirs, true):
-            return try await conflictPaths(lore_revision_revert_resolve_theirs_async, \.paths, paths)
+        switch side {
+        case .merged:
+            try await mergeOrRevert(
+                merge: { try await conflictPaths(lore_branch_merge_resolve_async, \.paths, paths) },
+                revert: { try await conflictPaths(lore_revision_revert_resolve_async, \.paths, paths) }
+            )
+        case .mine:
+            try await mergeOrRevert(
+                merge: { try await conflictPaths(lore_branch_merge_resolve_mine_async, \.paths, paths) },
+                revert: { try await conflictPaths(lore_revision_revert_resolve_mine_async, \.paths, paths) }
+            )
+        case .theirs:
+            try await mergeOrRevert(
+                merge: { try await conflictPaths(lore_branch_merge_resolve_theirs_async, \.paths, paths) },
+                revert: { try await conflictPaths(lore_revision_revert_resolve_theirs_async, \.paths, paths) }
+            )
         }
     }
 
@@ -379,6 +415,8 @@ extension Repository {
     ///
     /// Unresolving a file doesn't change it in the working directory;
     /// call ``restartMerge(of:)`` to write its conflict markers again.
+    /// Lore 0.11.0 can't unresolve a file in a linked repository
+    /// and throws ``LoreError/Code/internal``.
     ///
     /// - Parameter paths: The paths of the files, relative to the repository directory.
     ///   Lore 0.11.0 ignores directories.
@@ -386,11 +424,10 @@ extension Repository {
     /// - Throws: ``LoreError`` if the library can't unresolve the files.
     @discardableResult
     public func unresolveConflicts(in paths: [String]) async throws -> [String] {
-        if try await isRevertInProgress() {
-            try await conflictPaths(lore_revision_revert_unresolve_async, \.paths, paths)
-        } else {
-            try await conflictPaths(lore_branch_merge_unresolve_async, \.paths, paths)
-        }
+        try await mergeOrRevert(
+            merge: { try await conflictPaths(lore_branch_merge_unresolve_async, \.paths, paths) },
+            revert: { try await conflictPaths(lore_revision_revert_unresolve_async, \.paths, paths) }
+        )
     }
 
     /// Restarts the resolution of files
@@ -399,16 +436,17 @@ extension Repository {
     /// Restarting writes each file with conflict markers again
     /// and marks it as in conflict,
     /// discarding its content in the working directory.
+    /// Lore 0.11.0 can't restart a file in a linked repository
+    /// and throws ``LoreError/Code/invalidArguments``.
     ///
     /// - Parameter paths: The paths of the files, relative to the repository directory.
     ///   Lore 0.11.0 ignores directories.
     /// - Throws: ``LoreError`` if the library can't restart the files.
     public func restartMerge(of paths: [String]) async throws {
-        if try await isRevertInProgress() {
-            _ = try await conflictPaths(lore_revision_revert_restart_async, \.paths, paths)
-        } else {
-            _ = try await conflictPaths(lore_branch_merge_restart_async, \.paths, paths)
-        }
+        _ = try await mergeOrRevert(
+            merge: { try await conflictPaths(lore_branch_merge_restart_async, \.paths, paths) },
+            revert: { try await conflictPaths(lore_revision_revert_restart_async, \.paths, paths) }
+        )
     }
 
     /// Abandons the merge or revert in progress,
@@ -427,17 +465,10 @@ extension Repository {
     ///   Lore 0.11.0 reports that no merge is in progress
     ///   with ``LoreError/Code/internal``.
     public func abortMerge() async throws {
-        if try await isRevertInProgress() {
-            _ = try await perform(
-                lore_revision_revert_abort_async,
-                transform: { _ -> Never? in nil }
-            )
-        } else {
-            _ = try await perform(
-                lore_branch_merge_abort_async,
-                transform: { _ -> Never? in nil }
-            )
-        }
+        _ = try await mergeOrRevert(
+            merge: { try await perform(lore_branch_merge_abort_async, transform: { _ -> Never? in nil }) },
+            revert: { try await perform(lore_revision_revert_abort_async, transform: { _ -> Never? in nil }) }
+        )
     }
 
     /// Adds files to the merge in progress as merged changes.
@@ -473,9 +504,18 @@ extension Repository {
     /// The revert functions then fail for a cherry-pick
     /// or with no operation in progress,
     /// as the merge functions would.
+    ///
+    /// A merge whose conflicts are only in a linked repository
+    /// leaves no merged revision in the status of this repository either,
+    /// so ``mergeOrRevert(merge:revert:)`` calls the merge function
+    /// when the revert function reports that the operation isn't a revert.
     private func isRevertInProgress() async throws -> Bool {
         let merged = try await perform(
             lore_repository_status_async,
+            offline: true,
+            configure: { (arguments: UnsafeMutablePointer<lore_repository_status_args_t>, _) in
+                arguments.pointee.revision_only = 1
+            },
             transform: { event -> Bool? in
                 guard event.pointee.tag == LORE_EVENT_REPOSITORY_STATUS_REVISION.rawValue else {
                     return nil
@@ -484,6 +524,22 @@ extension Repository {
             }
         )
         return merged.last == false
+    }
+
+    /// Calls the revert function of the library for a revert in progress
+    /// and its merge function otherwise.
+    private func mergeOrRevert<Result>(
+        merge: () async throws -> Result,
+        revert: () async throws -> Result
+    ) async throws -> Result {
+        guard try await isRevertInProgress() else {
+            return try await merge()
+        }
+        do {
+            return try await revert()
+        } catch let error as LoreError where error.code == .internal && error.message.contains("Invalid merge type") {
+            return try await merge()
+        }
     }
 
     /// Performs an operation that takes paths
@@ -605,7 +661,24 @@ private enum MergeEvent: Sendable {
         }
     }
 
-    static func result(_ events: [MergeEvent]) throws -> MergeResult {
+    /// Folds the events of an operation into its result for this repository.
+    ///
+    /// A merge in a repository with links
+    /// merges each linked repository first,
+    /// and reports a begin event, conflicts, and a committed revision
+    /// for each repository that it merges,
+    /// without naming the repository except in the revision.
+    /// A conflict in a linked repository stops the merge
+    /// before it merges this repository,
+    /// and the library reports the file twice:
+    /// relative to the linked repository and relative to this one.
+    ///
+    /// - Parameters:
+    ///   - events: The events of the operation.
+    ///   - state: The state of this repository after the operation.
+    ///   - isBranchMerge: Whether the operation merged a branch,
+    ///     which leaves the merged revision in the state of this repository.
+    static func result(_ events: [MergeEvent], in state: RepositoryState, isBranchMerge: Bool) throws -> MergeResult {
         var source: RevisionID?
         var conflicts: [String] = []
         var commits: [CommitEvent] = []
@@ -616,15 +689,29 @@ private enum MergeEvent: Sendable {
             case .commit(let event): commits.append(event)
             }
         }
-        guard let source else {
+        guard source != nil else {
             throw LoreError.missingEvent("the source revision")
         }
-        // The operation reports a revision only when it commits.
-        let committed = commits.contains { if case .revision = $0 { true } else { false } }
+        // The begin event of this repository comes last,
+        // but a merge that a linked repository's conflict stopped has none,
+        // and the status can still report the incoming revision of an earlier merge.
+        if isBranchMerge, source != state.mergedRevision {
+            source = nil
+        }
+        var reported: Set<String> = []
+        conflicts = conflicts.filter { state.unresolvedPaths.contains($0) && reported.insert($0).inserted }
         return MergeResult(
             sourceRevision: source,
-            revision: committed ? try CommitEvent.revision(commits) : nil,
+            revision: CommitEvent.revision(of: state.repositoryID, in: commits),
             conflicts: conflicts
         )
+    }
+}
+
+extension Repository {
+    /// Folds the events of a merge, a revert, or a cherry-pick
+    /// into its result for this repository.
+    fileprivate func mergeResult(isBranchMerge: Bool, _ events: [MergeEvent]) async throws -> MergeResult {
+        try MergeEvent.result(events, in: try await state(includingFiles: true), isBranchMerge: isBranchMerge)
     }
 }

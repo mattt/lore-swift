@@ -130,23 +130,49 @@ extension Repository {
     /// The new revision is local
     /// until you ``push(branch:allowingFastForward:)`` it.
     ///
-    /// - Parameter message: The commit message.
-    /// - Returns: The new revision, with its metadata.
+    /// Files staged in a linked repository
+    /// are committed as a revision of that repository first,
+    /// with the message for the link in `linkMessages`
+    /// or else `message`,
+    /// and the new revision of this repository pins each link to its new revision.
+    /// Files staged in a layer are committed as a revision
+    /// of the layer's repository with `message`;
+    /// this repository's revisions don't record it.
+    /// If only files of layers are staged,
+    /// this repository gets no new revision.
+    ///
+    /// - Parameters:
+    ///   - message: The commit message.
+    ///   - linkMessages: Commit messages for linked repositories,
+    ///     by the path where each link is mounted.
+    ///     The library ignores the message for a link with nothing staged.
+    /// - Returns: The new revision of this repository, with its metadata,
+    ///   or its current revision if only files of layers were staged.
     /// - Throws: ``LoreError`` if the library can't commit,
     ///   such as ``LoreError/Code/nothingStaged``,
     ///   ``LoreError/Code/missingIdentity``,
-    ///   or ``LoreError/Code/conflict``
-    ///   when a file of a merge has a conflict that isn't resolved.
+    ///   ``LoreError/Code/conflict``
+    ///   when a file of a merge has a conflict that isn't resolved,
+    ///   or ``LoreError/Code/invalidArguments``
+    ///   for a path in `linkMessages` that isn't a link.
     @discardableResult
-    public func commit(message: String) async throws -> Revision {
+    public func commit(message: String, linkMessages: [String: String] = [:]) async throws -> Revision {
+        let repositoryID = try await state().repositoryID
         let events = try await perform(
             lore_revision_commit_async,
             configure: { (arguments: UnsafeMutablePointer<lore_revision_commit_args_t>, arena) in
                 arguments.pointee.message = arena.string(message)
+                let links = linkMessages.sorted { $0.key < $1.key }
+                arguments.pointee.link_paths = arena.strings(links.map(\.key))
+                arguments.pointee.link_messages = arena.strings(links.map(\.value))
             },
             transform: CommitEvent.init
         )
-        return try CommitEvent.revision(events)
+        if let revision = CommitEvent.revision(of: repositoryID, in: events) {
+            return revision
+        }
+        // A commit of only files in layers reports only the layers' revisions.
+        return try await revision()
     }
 
     /// Replaces the commit message of the current revision.
@@ -166,6 +192,7 @@ extension Repository {
     /// - Throws: ``LoreError`` if the library can't amend the revision.
     @discardableResult
     public func amend(message: String) async throws -> Revision {
+        let repositoryID = try await state().repositoryID
         let events = try await perform(
             lore_revision_amend_async,
             configure: { (arguments: UnsafeMutablePointer<lore_revision_amend_args_t>, arena) in
@@ -173,13 +200,21 @@ extension Repository {
             },
             transform: CommitEvent.init
         )
-        return try CommitEvent.revision(events)
+        guard let revision = CommitEvent.revision(of: repositoryID, in: events) else {
+            throw LoreError.missingEvent("a revision")
+        }
+        return revision
     }
 }
 
 /// An event of a commit.
+///
+/// A commit in a repository with links or layers
+/// also commits the linked repositories and layers that have staged files,
+/// and reports a revision for each repository that it commits.
+/// The library reports the metadata of a revision after the revision.
 enum CommitEvent: Sendable {
-    case revision(Revision)
+    case revision(Revision, repositoryID: RepositoryID?)
     case metadata(MetadataEntry)
 
     init?(_ event: UnsafePointer<lore_event_t>) {
@@ -196,7 +231,7 @@ enum CommitEvent: Sendable {
                 return nil
             }
             revision.branchID = BranchID(data.branch)
-            self = .revision(revision)
+            self = .revision(revision, repositoryID: RepositoryID(data.repository))
         case LORE_EVENT_METADATA.rawValue:
             guard let entry = MetadataEntry(event) else {
                 return nil
@@ -207,20 +242,28 @@ enum CommitEvent: Sendable {
         }
     }
 
-    /// Returns the committed revision with the metadata that the commit reports.
-    static func revision(_ events: [CommitEvent]) throws -> Revision {
-        var revisions: [Revision] = []
+    /// Returns the last revision that the events report for a repository,
+    /// with the metadata that follows it,
+    /// or `nil` if they report no revision for the repository.
+    static func revision(of repositoryID: RepositoryID, in events: [CommitEvent]) -> Revision? {
+        var revision: Revision?
         var metadata: [MetadataEntry] = []
+        var isRepository = false
         for event in events {
             switch event {
-            case .revision(let revision): revisions.append(revision)
-            case .metadata(let entry): metadata.append(entry)
+            case .revision(let committed, let committedRepositoryID):
+                isRepository = committedRepositoryID == repositoryID
+                if isRepository {
+                    revision = committed
+                    metadata = []
+                }
+            case .metadata(let entry):
+                if isRepository {
+                    metadata.append(entry)
+                }
             }
         }
-        guard var revision = revisions.last else {
-            throw LoreError.missingEvent("a revision")
-        }
-        revision.metadata = Dictionary(metadata)
+        revision?.metadata = Dictionary(metadata)
         return revision
     }
 }
