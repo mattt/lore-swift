@@ -46,9 +46,15 @@ done
 
 pids=""
 signing_key=""
-# Stops the servers and the provider and removes the signing key.
+test_pid=""
+# Stops the tests, the servers, and the provider, and removes the signing key.
 # No command in it can end it early.
+# shellcheck disable=SC2329 # The EXIT trap calls it.
 clean_up() {
+    if [ -n "$test_pid" ] && kill -0 "$test_pid" 2>/dev/null; then
+        kill "$test_pid" 2>/dev/null || true
+        wait "$test_pid" 2>/dev/null || true
+    fi
     for pid in $pids; do
         if kill -0 "$pid" 2>/dev/null; then
             kill "$pid" 2>/dev/null || true
@@ -61,6 +67,8 @@ clean_up() {
 }
 trap clean_up EXIT
 # Exiting runs the EXIT trap, with the status for the signal.
+# The tests run in the background so that a signal interrupts the wait for them
+# instead of waiting for them to finish.
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
@@ -178,4 +186,9 @@ LORE_INTEGRATION=1 \
     LORE_AUTHENTICATED_SERVER_URL="lore://$HOST:$AUTH_PORT" \
     LORE_IDENTITY_PROVIDER_URL="$ISSUER" \
     LORE_SIGNING_KEY="$signing_key" \
-    swift test "$@"
+    swift test "$@" &
+test_pid=$!
+status=0
+wait "$test_pid" || status=$?
+test_pid=""
+exit "$status"
