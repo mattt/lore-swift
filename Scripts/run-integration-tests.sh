@@ -5,7 +5,7 @@
 #
 # Usage: Scripts/run-integration-tests.sh [swift test arguments]
 #
-# Run Scripts/fetch-liblore.sh --with-server first.
+# Run Scripts/fetch-loreserver.sh first.
 # The server listens on 127.0.0.1 only:
 # port 43537 for QUIC (UDP) and gRPC (TCP), and port 43539 for HTTP.
 # Its stores, logs, and temporary files go in .scratch/integration/.
@@ -23,7 +23,7 @@ server="$package_root/Vendor/loreserver/loreserver"
 run="$package_root/.scratch/integration/$(date +%Y%m%d-%H%M%S)"
 
 if [ ! -x "$server" ]; then
-    echo "error: $server is missing; run Scripts/fetch-liblore.sh --with-server" >&2
+    echo "error: $server is missing; run Scripts/fetch-loreserver.sh" >&2
     exit 1
 fi
 

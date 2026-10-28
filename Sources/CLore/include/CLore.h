@@ -1,7 +1,7 @@
 // The C interface of the Lore library.
 //
-// Scripts/fetch-liblore.sh places lore.h in the headers of
-// Vendor/liblore.xcframework.
+// The liblore binary target supplies lore.h;
+// Scripts/build-xcframework.sh places it in the headers of the XCFramework.
 #pragma once
 
 #include <lore.h>

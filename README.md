@@ -22,28 +22,11 @@ and follows their names where they fit Swift.
 
 ## Installation
 
-The package links against the Lore C library,
-which the repository doesn't include.
-Clone the repository and run the fetch script once:
-
-```console
-$ git clone https://github.com/mattt/lore-swift.git
-$ cd lore-swift
-$ Scripts/fetch-liblore.sh
-```
-
-The script downloads `liblore-v0.11.0-aarch64-apple-darwin.tar.gz`
-from the [Lore 0.11.0 release](https://github.com/EpicGames/lore/releases/tag/v0.11.0),
-checks its SHA-256 digest,
-and builds `Vendor/liblore.xcframework` from `liblore.dylib` and `lore.h`.
-SwiftPM copies `liblore.dylib` next to the products it builds,
-with Epic Games' code signature intact.
-
-Then add the package to your `Package.swift` file as a local dependency:
+Add the package to your `Package.swift` file:
 
 ```swift
 dependencies: [
-    .package(path: "../lore-swift")
+    .package(url: "https://github.com/mattt/lore-swift.git", from: "0.1.0")
 ]
 ```
 
@@ -58,10 +41,17 @@ And add the `Lore` product to your target:
 )
 ```
 
-> [!NOTE]
-> A dependency on the repository URL doesn't work yet,
-> because SwiftPM doesn't run the fetch script
-> for the checkouts that it makes.
+The package links against the Lore C library
+through a binary target.
+SwiftPM downloads `liblore.xcframework.zip`
+from the [liblore-0.11.0 release](https://github.com/mattt/lore-swift/releases/tag/liblore-0.11.0)
+of this repository
+and checks it against the checksum in `Package.swift`.
+The XCFramework holds `liblore.dylib` and `lore.h`
+from the [Lore 0.11.0 release](https://github.com/EpicGames/lore/releases/tag/v0.11.0),
+unchanged.
+SwiftPM copies `liblore.dylib` next to the products it builds,
+with Epic Games' code signature intact.
 
 ## Usage
 
@@ -254,11 +244,11 @@ so the library keeps its per-user data out of your home directory.
 ### Integration tests
 
 The integration tests run against a local `loreserver`.
-Fetch the server with the library,
+Fetch the server,
 then run the tests with the integration script:
 
 ```console
-$ Scripts/fetch-liblore.sh --with-server
+$ Scripts/fetch-loreserver.sh
 $ Scripts/run-integration-tests.sh
 ```
 
@@ -269,6 +259,21 @@ runs `swift test` with `LORE_INTEGRATION=1`,
 and stops the server when the tests end.
 The server runs with authentication off,
 and the tests use the unencrypted `lore://` scheme.
+
+### Updating the Lore library
+
+To move the package to a new Lore release:
+
+1. Set `LORE_VERSION` and the SHA-256 digests
+   in `Scripts/build-xcframework.sh` and `Scripts/fetch-loreserver.sh`.
+2. Run `Scripts/build-xcframework.sh`,
+   which builds `Vendor/liblore.xcframework.zip`
+   and prints its checksum.
+3. To test before you publish the archive,
+   change the `liblore` binary target to `path: "Vendor/liblore.xcframework"`.
+4. Attach the archive to a new `liblore-<version>` release of this repository.
+5. Set the binary target's `url` to the archive in that release
+   and its `checksum` to the printed checksum.
 
 ### Formatting
 
@@ -282,3 +287,4 @@ This project is available under the MIT license.
 See the LICENSE file for more info.
 
 The Lore library is available under the MIT license from Epic Games.
+The XCFramework includes its `LICENSE.txt` and `THIRD-PARTY-NOTICES.txt` files.
