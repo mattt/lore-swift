@@ -237,3 +237,73 @@ extension MergeSide {
         }
     }
 }
+
+/// The parts of the status of a repository
+/// that the results of other operations depend on.
+struct RepositoryState: Sendable {
+    /// The identifier of the repository.
+    var repositoryID: RepositoryID
+
+    /// The incoming revision of the merge in progress
+    /// or of the last merge revision, if any.
+    var mergedRevision: RevisionID?
+
+    /// The paths of the files with unresolved conflicts.
+    var unresolvedPaths: Set<String> = []
+}
+
+extension Repository {
+    /// Reads the identifier of the repository
+    /// and the state of a merge,
+    /// without scanning the working directory.
+    ///
+    /// Operations on a repository with links or layers
+    /// also report events for the linked repositories and layers;
+    /// the identifier tells this repository's events apart.
+    ///
+    /// - Parameter includingFiles: Whether to read the files with unresolved conflicts.
+    func state(includingFiles: Bool = false) async throws -> RepositoryState {
+        let events = try await perform(
+            lore_repository_status_async,
+            configure: { (arguments: UnsafeMutablePointer<lore_repository_status_args_t>, _) in
+                arguments.pointee.staged = UInt8(includingFiles)
+            },
+            transform: { event -> RepositoryStateEvent? in
+                switch event.pointee.tag {
+                case LORE_EVENT_REPOSITORY_STATUS_REVISION.rawValue:
+                    let data = event.pointee.repository_status_revision
+                    guard let repositoryID = RepositoryID(data.repository) else {
+                        return nil
+                    }
+                    return .repository(repositoryID, mergedRevision: RevisionID(data.revision_merged))
+                case LORE_EVENT_REPOSITORY_STATUS_FILE.rawValue:
+                    let data = event.pointee.repository_status_file
+                    return Bool(data.flag_conflict_unresolved) ? .unresolved(String(data.path)) : nil
+                default:
+                    return nil
+                }
+            }
+        )
+        var state: RepositoryState?
+        var unresolvedPaths: Set<String> = []
+        for event in events {
+            switch event {
+            case .repository(let repositoryID, let mergedRevision):
+                state = RepositoryState(repositoryID: repositoryID, mergedRevision: mergedRevision)
+            case .unresolved(let path):
+                unresolvedPaths.insert(path)
+            }
+        }
+        guard var state else {
+            throw LoreError.missingEvent("the repository")
+        }
+        state.unresolvedPaths = unresolvedPaths
+        return state
+    }
+}
+
+/// An event of a status operation that ``Repository/state(includingFiles:)`` reads.
+private enum RepositoryStateEvent: Sendable {
+    case repository(RepositoryID, mergedRevision: RevisionID?)
+    case unresolved(String)
+}

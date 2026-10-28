@@ -96,7 +96,7 @@ let conflictMarkers = "<<<<<<< ours\nmain\n||||||| original\nbase\n=======\nfeat
         #expect(file.conflictResolution == .merged)
 
         let merge = try await repository.commit(message: "Merge feature")
-        #expect(merge.parents == [main.id, result.sourceRevision])
+        #expect(merge.parents == [main.id, try #require(result.sourceRevision)])
         #expect(merge.message == "Merge feature")
     }
 

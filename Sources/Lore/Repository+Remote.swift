@@ -199,10 +199,15 @@ extension Repository {
 }
 
 /// An event of a push.
+///
+/// A push in a repository with links or layers
+/// also pushes the linked repositories and layers,
+/// and reports a begin event and pushed revisions for each of them.
+/// The begin event of the repository itself is the one without the link or layer flag.
 private enum PushEvent: Sendable {
-    case begin(remote: String, branch: String, revisionCount: Int, wasAlreadyPushed: Bool)
+    case begin(remote: String, branch: String, revisionCount: Int, wasAlreadyPushed: Bool, repositoryID: RepositoryID?)
     case progress(PushProgress)
-    case revisionPushed(RevisionID?, number: Int)
+    case revisionPushed(RevisionID?, number: Int, repositoryID: RepositoryID?)
 
     init?(_ event: UnsafePointer<lore_event_t>) {
         switch event.pointee.tag {
@@ -217,7 +222,8 @@ private enum PushEvent: Sendable {
                 remote: String(data.remote),
                 branch: String(data.branch_name),
                 revisionCount: Int(clamping: data.local_history),
-                wasAlreadyPushed: Bool(data.flag_already_pushed)
+                wasAlreadyPushed: Bool(data.flag_already_pushed),
+                repositoryID: RepositoryID(data.repository)
             )
         case LORE_EVENT_BRANCH_PUSH_FRAGMENT_PROGRESS.rawValue:
             let data = event.pointee.branch_push_fragment_progress
@@ -233,7 +239,8 @@ private enum PushEvent: Sendable {
             let data = event.pointee.branch_push_revision_push_end
             self = .revisionPushed(
                 RevisionID(data.new_remote_revision),
-                number: Int(clamping: data.new_remote_revision_number)
+                number: Int(clamping: data.new_remote_revision_number),
+                repositoryID: RepositoryID(data.repository)
             )
         default:
             return nil
@@ -247,19 +254,23 @@ private enum PushEvent: Sendable {
             revisionCount: 0,
             wasAlreadyPushed: false
         )
+        var repository: RepositoryID?
         for event in events {
             switch event {
-            case .begin(let remote, let branch, let revisionCount, let wasAlreadyPushed):
+            case .begin(let remote, let branch, let revisionCount, let wasAlreadyPushed, let repositoryID):
                 result.remote = remote
                 result.branch = branch
                 result.revisionCount = revisionCount
                 result.wasAlreadyPushed = wasAlreadyPushed
-            case .revisionPushed(let revision, let number):
-                result.revision = revision
-                result.revisionNumber = number
-            case .progress:
+                repository = repositoryID
+            case .revisionPushed, .progress:
                 break
             }
+        }
+        for case .revisionPushed(let revision, let number, let repositoryID) in events
+        where repositoryID == repository {
+            result.revision = revision
+            result.revisionNumber = number
         }
         return result
     }

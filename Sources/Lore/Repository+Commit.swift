@@ -136,16 +136,15 @@ extension Repository {
     /// or else `message`.
     /// The new revision of this repository pins each link to its new revision.
     /// If only files of layers are staged,
-    /// this repository gets no revision,
-    /// and the method returns the revision of the last layer that it commits,
-    /// without metadata.
+    /// this repository gets no new revision.
     ///
     /// - Parameters:
     ///   - message: The commit message.
     ///   - linkMessages: Commit messages for linked repositories,
     ///     by the path where each link is mounted.
     ///     The library ignores the message for a link with nothing staged.
-    /// - Returns: The new revision, with its metadata unless it's a layer's revision.
+    /// - Returns: The new revision of this repository, with its metadata,
+    ///   or its current revision if only files of layers were staged.
     /// - Throws: ``LoreError`` if the library can't commit,
     ///   such as ``LoreError/Code/nothingStaged``,
     ///   ``LoreError/Code/missingIdentity``,
@@ -165,7 +164,12 @@ extension Repository {
             },
             transform: CommitEvent.init
         )
-        return try CommitEvent.revision(events)
+        let repositoryID = try await state().repositoryID
+        if let revision = CommitEvent.revision(of: repositoryID, in: events) {
+            return revision
+        }
+        // A commit of only files in layers reports only the layers' revisions.
+        return try await revision()
     }
 
     /// Replaces the commit message of the current revision.
@@ -192,13 +196,22 @@ extension Repository {
             },
             transform: CommitEvent.init
         )
-        return try CommitEvent.revision(events)
+        let repositoryID = try await state().repositoryID
+        guard let revision = CommitEvent.revision(of: repositoryID, in: events) else {
+            throw LoreError.missingEvent("a revision")
+        }
+        return revision
     }
 }
 
 /// An event of a commit.
+///
+/// A commit in a repository with links or layers
+/// also commits the linked repositories and layers that have staged files,
+/// and reports a revision for each repository that it commits.
+/// The library reports the metadata of a revision after the revision.
 enum CommitEvent: Sendable {
-    case revision(Revision)
+    case revision(Revision, repositoryID: RepositoryID?)
     case metadata(MetadataEntry)
 
     init?(_ event: UnsafePointer<lore_event_t>) {
@@ -215,7 +228,7 @@ enum CommitEvent: Sendable {
                 return nil
             }
             revision.branchID = BranchID(data.branch)
-            self = .revision(revision)
+            self = .revision(revision, repositoryID: RepositoryID(data.repository))
         case LORE_EVENT_METADATA.rawValue:
             guard let entry = MetadataEntry(event) else {
                 return nil
@@ -226,20 +239,28 @@ enum CommitEvent: Sendable {
         }
     }
 
-    /// Returns the committed revision with the metadata that the commit reports.
-    static func revision(_ events: [CommitEvent]) throws -> Revision {
-        var revisions: [Revision] = []
+    /// Returns the last revision that the events report for a repository,
+    /// with the metadata that follows it,
+    /// or `nil` if they report no revision for the repository.
+    static func revision(of repositoryID: RepositoryID, in events: [CommitEvent]) -> Revision? {
+        var revision: Revision?
         var metadata: [MetadataEntry] = []
+        var isRepository = false
         for event in events {
             switch event {
-            case .revision(let revision): revisions.append(revision)
-            case .metadata(let entry): metadata.append(entry)
+            case .revision(let committed, let committedRepositoryID):
+                isRepository = committedRepositoryID == repositoryID
+                if isRepository {
+                    revision = committed
+                    metadata = []
+                }
+            case .metadata(let entry):
+                if isRepository {
+                    metadata.append(entry)
+                }
             }
         }
-        guard var revision = revisions.last else {
-            throw LoreError.missingEvent("a revision")
-        }
-        revision.metadata = Dictionary(metadata)
+        revision?.metadata = Dictionary(metadata)
         return revision
     }
 }
