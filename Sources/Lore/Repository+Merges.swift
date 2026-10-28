@@ -48,8 +48,7 @@ public struct BranchDiff: Sendable, Hashable {
         public var action: FileAction
 
         /// A Boolean value that indicates whether the library merged
-        /// the changes from both branches to the file,
-        /// which it does only when you ask it to merge automatically.
+        /// the changes from both branches to the file.
         public var isAutomaticallyMerged: Bool
     }
 
@@ -84,6 +83,11 @@ extension Repository {
     /// Compares two branches
     /// as a merge of the source branch into the target branch would.
     ///
+    /// With `mergingAutomatically` set to `true`,
+    /// the conflicts are those that
+    /// ``mergeBranch(named:message:committing:)`` reports
+    /// when it merges `source` into `target`.
+    ///
     /// - Parameters:
     ///   - source: The name of the branch to merge from.
     ///   - target: The name of the branch to merge into.
@@ -92,15 +96,16 @@ extension Repository {
     ///     or `nil` to compare every path.
     ///   - mergingAutomatically: Whether to merge the changes to a file
     ///     that both branches changed in different places,
+    ///     as a merge does,
     ///     reporting the file as a change instead of a conflict.
     /// - Returns: The changes and conflicts between the branches.
     /// - Throws: ``LoreError`` if the library can't compare the branches,
     ///   such as ``LoreError/Code/branchNotFound``.
     public func branchDiff(
-        from source: String,
-        to target: String,
+        merging source: String,
+        into target: String,
         path: String? = nil,
-        mergingAutomatically: Bool = false
+        mergingAutomatically: Bool = true
     ) async throws -> BranchDiff {
         let events = try await perform(
             lore_branch_diff_async,
@@ -268,6 +273,9 @@ extension Repository {
     /// the cherry-pick commits a revision with one parent
     /// whose `cherry-picked-from` metadata value
     /// is the hash of the picked revision.
+    /// A cherry-pick without conflicts and with `committing` set to `false`
+    /// stays in progress until you ``commit(message:)``,
+    /// which records the same `cherry-picked-from` value.
     ///
     /// Lore 0.11.0 has no functions to resolve or abort a cherry-pick:
     /// ``resolveConflicts(in:keeping:)`` and ``abortMerge()``
@@ -279,7 +287,8 @@ extension Repository {
     ///
     /// - Parameters:
     ///   - revision: The revision to cherry-pick.
-    ///   - message: The commit message for the new revision,
+    ///   - message: The commit message for the new revision
+    ///     if the cherry-pick commits,
     ///     or `nil` for the message of the picked revision.
     ///   - committing: Whether to commit the cherry-pick when no file is in conflict.
     /// - Returns: The result of the cherry-pick.
@@ -390,9 +399,11 @@ extension Repository {
     }
 
     /// Abandons the merge or revert in progress,
-    /// restoring the working directory to the current revision.
+    /// undoing the changes that it made to the working directory.
     ///
-    /// Aborting removes the files that the merge wrote for conflicts,
+    /// Aborting returns the files that the merge changed
+    /// to their content in the current revision,
+    /// removes the files that the merge wrote for conflicts,
     /// and keeps changes to files that the merge didn't touch.
     ///
     /// Lore 0.11.0 can't abort a cherry-pick;
@@ -420,12 +431,11 @@ extension Repository {
     ///
     /// Use this method to stage a file again
     /// after you ``unstage(_:)`` a change that the merge made.
-    /// The library compares the file with both sides of the merge,
-    /// and marks it as in conflict
-    /// if the sides conflict or the file has conflict markers.
+    /// A file whose conflict you hadn't resolved is in conflict again.
     ///
-    /// Lore 0.11.0 supports this method only for a merge of a branch,
-    /// not for a revert or a cherry-pick.
+    /// Lore 0.11.0 supports this method only for a merge of a branch:
+    /// for a revert or a cherry-pick,
+    /// it throws ``LoreError/Code/internal``.
     ///
     /// - Parameter paths: The paths of the files, relative to the repository directory.
     /// - Throws: ``LoreError`` if the library can't stage the files.

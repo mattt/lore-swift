@@ -43,7 +43,12 @@ public struct FileInfo: Sendable, Hashable {
     /// A Boolean value that indicates whether the entry was deleted.
     public var isDeleted: Bool
 
-    /// A Boolean value that indicates whether the entry is in conflict.
+    /// A Boolean value that indicates whether the library reports
+    /// the entry as in conflict.
+    ///
+    /// Lore 0.11.0 reports `false` for the files of a merge in progress,
+    /// including files whose conflicts aren't resolved;
+    /// ``FileStatus/isConflicted`` reports those conflicts.
     public var isConflicted: Bool
 }
 
@@ -266,8 +271,8 @@ extension Repository {
     /// The other branch must be one that the current branch was created from,
     /// directly or through other branches.
     /// If the current branch has no merge from it,
-    /// the files get their content at the revision
-    /// that the current branch was created from.
+    /// the files get their content at the revision of that branch
+    /// that the current branch descends from.
     ///
     /// - Parameters:
     ///   - paths: The paths to reset, relative to the repository directory.
@@ -275,9 +280,7 @@ extension Repository {
     ///   - branch: The name of the branch that the current branch merged from.
     ///   - side: The version of each file to restore:
     ///     the content that the merge committed,
-    ///     or the version from either side of the merge,
-    ///     which differ from the merged content
-    ///     only for a file that was in conflict.
+    ///     or the version from either side of the merge.
     ///   - deletingUntrackedFiles: Whether to delete the files under `paths`
     ///     that the repository doesn't track.
     /// - Returns: The files that were reset.

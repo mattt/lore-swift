@@ -138,6 +138,7 @@ for branch in try await repository.branches() {
 ### Merging a branch
 
 ```swift
+try await repository.switchBranch(to: "main")
 let result = try await repository.mergeBranch(named: "feature", message: "Merge feature")
 if !result.conflicts.isEmpty {
     try await repository.resolveConflicts(in: result.conflicts, keeping: .theirs)
@@ -218,7 +219,7 @@ so it must return promptly.
 | Revision metadata | `lore_revision_metadata_get_async`, `lore_revision_metadata_list_async`, `lore_revision_metadata_set_async`, `lore_revision_metadata_clear_async` | `revisionMetadata(forKey:of:)`, `revisionMetadata(of:)`, `setRevisionMetadata(_:)`, `clearRevisionMetadata()` |
 | Branches | `lore_branch_list_async`, `lore_branch_create_async`, `lore_branch_switch_async`, `lore_branch_info_async`, `lore_branch_archive_async`, `lore_branch_protect_async`, `lore_branch_unprotect_async`, `lore_branch_reset_async`, `lore_branch_latest_list_async` | `branches(includingArchived:)`, `createBranch(named:category:)`, `switchBranch(to:revision:discardingLocalChanges:)`, `branchInfo(named:)`, `archiveBranch(named:)`, `protectBranch(named:)`, `unprotectBranch(named:)`, `resetBranch(named:to:)`, `latestRevisions(on:limit:)` |
 | Branch metadata | `lore_branch_metadata_get_async`, `lore_branch_metadata_set_async`, `lore_branch_metadata_clear_async` | `branchMetadata(of:)`, `branchMetadata(forKey:of:)`, `setBranchMetadata(_:of:)`, `clearBranchMetadata(keys:of:)` |
-| Merges | `lore_branch_merge_start_async`, `lore_branch_merge_into_async`, `lore_branch_diff_async`, `lore_file_stage_merge_async`, `lore_file_reset_to_last_merged_async` | `mergeBranch(named:message:committing:)`, `mergeBranch(into:message:)`, `branchDiff(from:to:path:mergingAutomatically:)`, `stageMerged(_:)`, `reset(_:toLastMergeFrom:keeping:deletingUntrackedFiles:)` |
+| Merges | `lore_branch_merge_start_async`, `lore_branch_merge_into_async`, `lore_branch_diff_async`, `lore_file_stage_merge_async`, `lore_file_reset_to_last_merged_async` | `mergeBranch(named:message:committing:)`, `mergeBranch(into:message:)`, `branchDiff(merging:into:path:mergingAutomatically:)`, `stageMerged(_:)`, `reset(_:toLastMergeFrom:keeping:deletingUntrackedFiles:)` |
 | Reverts and cherry-picks | `lore_revision_revert_async`, `lore_revision_cherry_pick_async` | `revert(_:message:committing:)`, `cherryPick(_:message:committing:)` |
 | Conflicts | `lore_branch_merge_resolve_async`, `lore_branch_merge_resolve_mine_async`, `lore_branch_merge_resolve_theirs_async`, `lore_branch_merge_unresolve_async`, `lore_branch_merge_restart_async`, `lore_branch_merge_abort_async`, `lore_revision_revert_resolve_async`, `lore_revision_revert_resolve_mine_async`, `lore_revision_revert_resolve_theirs_async`, `lore_revision_revert_unresolve_async`, `lore_revision_revert_restart_async`, `lore_revision_revert_abort_async` | `resolveConflicts(in:keeping:)`, `unresolveConflicts(in:)`, `restartMerge(of:)`, `abortMerge()` |
 | Files | `lore_file_history_async`, `lore_file_info_async`, `lore_file_diff_async` | `history(of:from:on:limit:)`, `fileInfo(of:revision:)`, `diff(of:from:to:contextLines:ignoringTrailingWhitespace:ignoringWhitespaceChanges:)` |
