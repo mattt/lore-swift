@@ -185,6 +185,19 @@ try await repository.push()
 Close a tree when you're done with it:
 an open tree keeps other processes from using the repository's store.
 
+### Committing content from memory
+
+```swift
+let store = try await repository.openStore()
+let tree = try await store.loadRevisionTree()
+let data = Data("Generated\n".utf8)
+let content = try await store.put(data, in: tree.repositoryID)
+try await tree.add([.file(named: "generated.txt", in: .node(.root), address: content.address, size: data.count)])
+try await tree.commit(message: "Add generated.txt")
+try await tree.close()
+try await store.close()
+```
+
 ### Locking files
 
 Locks are held on the server.
@@ -285,7 +298,8 @@ so it must return promptly.
 | Sync | `lore_revision_sync_async` | `sync(to:discardingLocalChanges:)`, `syncUpdates` |
 | Revisions | `lore_revision_history_async`, `lore_revision_info_async`, `lore_revision_diff_async`, `lore_revision_find_async`, `lore_revision_bisect_async` | `history(from:on:since:limit:stoppingAtBranchPoint:)`, `revision(_:)`, `changes(in:)`, `changes(from:to:paths:)`, `findRevision(withMetadataKey:value:)`, `findRevision(numbered:)`, `bisect(between:and:)` |
 | Revision metadata | `lore_revision_metadata_get_async`, `lore_revision_metadata_list_async`, `lore_revision_metadata_set_async`, `lore_revision_metadata_clear_async` | `revisionMetadata(forKey:of:)`, `revisionMetadata(of:)`, `setRevisionMetadata(_:)`, `clearRevisionMetadata()` |
-| Revision trees | `lore_revision_tree_load_async`, `lore_revision_tree_close_async`, `lore_revision_tree_info_async`, `lore_revision_tree_resolve_path_async`, `lore_revision_tree_list_children_async`, `lore_revision_tree_node_info_async`, `lore_revision_tree_node_path_async`, `lore_revision_tree_add_async`, `lore_revision_tree_delete_async`, `lore_revision_tree_modify_async`, `lore_revision_tree_move_async`, `lore_revision_tree_metadata_get_async`, `lore_revision_tree_metadata_set_async`, `lore_revision_tree_metadata_clear_async`, `lore_revision_tree_commit_async` | `loadRevisionTree(of:)`, `loadEmptyRevisionTree()`, `RevisionTree`: `close()`, `info()`, `resolve(_:)`, `children(of:)`, `node(_:)`, `path(of:)`, `add(_:)`, `delete(_:)`, `modify(_:)`, `move(_:)`, `metadata(forKeys:includingLoadedRevision:)`, `metadata(forKey:includingLoadedRevision:)`, `setMetadata(_:)`, `clearMetadata(forKeys:)`, `commit(message:)` |
+| Revision trees | `lore_revision_tree_load_async`, `lore_revision_tree_close_async`, `lore_revision_tree_info_async`, `lore_revision_tree_resolve_path_async`, `lore_revision_tree_list_children_async`, `lore_revision_tree_node_info_async`, `lore_revision_tree_node_path_async`, `lore_revision_tree_add_async`, `lore_revision_tree_delete_async`, `lore_revision_tree_modify_async`, `lore_revision_tree_move_async`, `lore_revision_tree_metadata_get_async`, `lore_revision_tree_metadata_set_async`, `lore_revision_tree_metadata_clear_async`, `lore_revision_tree_commit_async` | `loadRevisionTree(of:)`, `loadEmptyRevisionTree()`, `ContentStore.loadRevisionTree(of:)`, `ContentStore.loadEmptyRevisionTree()`, `RevisionTree`: `close()`, `info()`, `resolve(_:)`, `children(of:)`, `node(_:)`, `path(of:)`, `add(_:)`, `delete(_:)`, `modify(_:)`, `move(_:)`, `metadata(forKeys:includingLoadedRevision:)`, `metadata(forKey:includingLoadedRevision:)`, `setMetadata(_:)`, `clearMetadata(forKeys:)`, `commit(message:)` |
+| Storage | `lore_storage_open_async`, `lore_storage_close_async`, `lore_storage_put_async`, `lore_storage_put_file_async`, `lore_storage_get_async`, `lore_storage_get_file_async`, `lore_storage_get_metadata_async`, `lore_storage_copy_async`, `lore_storage_flush_async`, `lore_storage_obliterate_async`, `lore_storage_upload_async`, `lore_storage_put_resolved_async`, `lore_storage_put_file_resolved_async`, `lore_storage_get_resolved_async`, `lore_storage_get_file_resolved_async`, `lore_storage_mutable_load_async`, `lore_storage_mutable_store_async`, `lore_storage_mutable_compare_and_swap_async`, `lore_storage_mutable_list_async` | `openStore(connectingTo:)`, `ContentStore.openInMemory(connectingTo:options:)`, `ContentStore`: `close()`, `put(_:in:context:uploading:)`, `put(contentsOfFile:in:context:uploading:)`, `contents(at:in:)`, `writeContents(at:in:to:)`, `storedContent(at:in:)`, `copy(_:from:to:context:)`, `flush()`, `obliterate(_:in:)`, `upload(_:in:)`, `publish(_:as:in:context:uploading:)`, `publish(contentsOfFile:as:in:context:uploading:)`, `contents(publishedAs:in:context:)`, `writeContents(publishedAs:in:context:to:)`, `value(forKey:ofType:in:)`, `setValue(_:forKey:ofType:in:)`, `compareAndSwap(valueForKey:ofType:in:expecting:replacingWith:)`, `entries(ofType:in:)` |
 | Branches | `lore_branch_list_async`, `lore_branch_create_async`, `lore_branch_switch_async`, `lore_branch_info_async`, `lore_branch_archive_async`, `lore_branch_protect_async`, `lore_branch_unprotect_async`, `lore_branch_reset_async`, `lore_branch_latest_list_async` | `branches(includingArchived:)`, `createBranch(named:category:)`, `switchBranch(to:revision:discardingLocalChanges:)`, `branchInfo(named:inLinkAt:)`, `archiveBranch(named:includingLinks:includingLayers:)`, `protectBranch(named:)`, `unprotectBranch(named:)`, `resetBranch(named:to:)`, `latestRevisions(on:limit:)` |
 | Branch metadata | `lore_branch_metadata_get_async`, `lore_branch_metadata_set_async`, `lore_branch_metadata_clear_async` | `branchMetadata(of:)`, `branchMetadata(forKey:of:)`, `setBranchMetadata(_:of:)`, `clearBranchMetadata(keys:of:)` |
 | Merges | `lore_branch_merge_start_async`, `lore_branch_merge_into_async`, `lore_branch_diff_async`, `lore_file_stage_merge_async`, `lore_file_reset_to_last_merged_async` | `mergeBranch(named:message:committing:linkMessages:includingLinks:)`, `mergeBranch(into:message:)`, `branchDiff(merging:into:path:mergingAutomatically:)`, `stageMerged(_:)`, `reset(_:toLastMergeFrom:keeping:deletingUntrackedFiles:)` |
@@ -301,8 +315,7 @@ so it must return promptly.
 | Links | `lore_link_add_async`, `lore_link_remove_async`, `lore_link_update_async`, `lore_link_list_async`, `lore_link_info_async`, `lore_link_list_staged_async` | `addLink(to:at:sourcePath:pinnedTo:creatingBranches:)`, `removeLink(at:)`, `updateLink(at:to:)`, `links()`, `linkInfo(at:)`, `stagedLinks()` |
 | Layers | `lore_layer_add_async`, `lore_layer_remove_async`, `lore_layer_list_async` | `addLayer(from:at:sourcePath:matchingMetadataKey:)`, `removeLayer(at:sourceRepository:deletingUntrackedFiles:discardingLocalChanges:)`, `layers()` |
 
-The binding doesn't cover the rest of the C API,
-such as the storage API.
+The binding doesn't cover `lore_set_allocator`.
 Only `RevisionTree.setMetadata(_:)` can set binary or address metadata values.
 
 ## Development
