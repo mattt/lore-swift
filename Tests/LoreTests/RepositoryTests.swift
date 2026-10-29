@@ -175,5 +175,11 @@ import Testing
             try await repository.clearRepositoryMetadata()
         }
         #expect(clear?.code == .noRemote)
+        let clearKeys = await #expect(throws: LoreError.self) {
+            try await repository.clearRepositoryMetadata(keys: ["team"])
+        }
+        #expect(clearKeys?.code == .noRemote)
+        // No keys means no library call, so the offline repository doesn't fail.
+        try await repository.clearRepositoryMetadata(keys: [])
     }
 }

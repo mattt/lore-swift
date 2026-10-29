@@ -439,19 +439,42 @@ extension Repository {
         )
     }
 
+    /// Removes every metadata value that you set from a branch.
+    ///
+    /// Branch metadata is held on the server,
+    /// so the repository must not be offline.
+    ///
+    /// - Parameter branch: The name of the branch,
+    ///   or `nil` for the current branch.
+    /// - Throws: ``LoreError`` if the library can't clear the metadata,
+    ///   such as ``LoreError/Code/noRemote``.
+    public func clearBranchMetadata(of branch: String? = nil) async throws {
+        try await clearBranchMetadata(selecting: [], of: branch)
+    }
+
     /// Removes metadata values from a branch.
     ///
     /// Branch metadata is held on the server,
     /// so the repository must not be offline.
     ///
     /// - Parameters:
-    ///   - keys: The keys to remove,
-    ///     or an empty array for every value that you set.
+    ///   - keys: The keys to remove.
+    ///     An empty array removes nothing,
+    ///     and the method returns without calling the library.
     ///   - branch: The name of the branch,
     ///     or `nil` for the current branch.
     /// - Throws: ``LoreError`` if the library can't clear the metadata,
     ///   such as ``LoreError/Code/noRemote``.
-    public func clearBranchMetadata(keys: [String] = [], of branch: String? = nil) async throws {
+    public func clearBranchMetadata(keys: [String], of branch: String? = nil) async throws {
+        guard !keys.isEmpty else {
+            return
+        }
+        try await clearBranchMetadata(selecting: keys, of: branch)
+    }
+
+    /// Removes the values for keys from a branch,
+    /// or every value that you set for an empty array.
+    private func clearBranchMetadata(selecting keys: [String], of branch: String?) async throws {
         _ = try await perform(
             lore_branch_metadata_clear_async,
             configure: { (arguments: UnsafeMutablePointer<lore_branch_metadata_clear_args_t>, arena) in

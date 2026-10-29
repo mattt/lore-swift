@@ -162,6 +162,10 @@ import Testing
         #expect(try await repository.repositoryMetadata(forKey: "team") == .string("tools"))
         #expect(try await repository.repositoryMetadata()["size"] == .number(3))
 
+        // An empty array of keys clears nothing.
+        try await repository.clearRepositoryMetadata(keys: [])
+        #expect(try await repository.repositoryMetadata()["team"] == .string("tools"))
+
         try await repository.clearRepositoryMetadata(keys: ["team"])
         let cleared = try await repository.repositoryMetadata()
         #expect(cleared["team"] == nil)
@@ -179,6 +183,10 @@ import Testing
         try await repository.setBranchMetadata(["reviewed": .boolean(true)], of: "main")
         #expect(try await repository.branchMetadata(forKey: "owner") == .string("alice"))
         #expect(try await repository.branchMetadata(of: "main")["reviewed"] == .boolean(true))
+
+        // An empty array of keys clears nothing.
+        try await repository.clearBranchMetadata(keys: [], of: "main")
+        #expect(try await repository.branchMetadata()["owner"] == .string("alice"))
 
         try await repository.clearBranchMetadata(keys: ["owner"])
         let cleared = try await repository.branchMetadata()

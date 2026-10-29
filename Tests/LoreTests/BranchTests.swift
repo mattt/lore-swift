@@ -172,5 +172,11 @@ import Testing
             try await repository.clearBranchMetadata(of: "main")
         }
         #expect(clear?.code == .noRemote)
+        let clearKeys = await #expect(throws: LoreError.self) {
+            try await repository.clearBranchMetadata(keys: ["owner"])
+        }
+        #expect(clearKeys?.code == .noRemote)
+        // No keys means no library call, so the offline repository doesn't fail.
+        try await repository.clearBranchMetadata(keys: [])
     }
 }
