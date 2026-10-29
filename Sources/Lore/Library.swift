@@ -87,12 +87,9 @@ extension Library {
     /// takes precedence over the limit.
     ///
     /// Call this method once, before the first operation of the process.
-    /// The library records the limit at the first call
-    /// and ignores later calls.
-    /// It sizes its thread pools when the first operation starts,
-    /// so a limit recorded after that changes nothing.
-    /// In Lore 0.11.0, the first call records the limit,
-    /// and returns `true`, even after the first operation.
+    /// The first call records the limit and returns `true`,
+    /// in Lore 0.11.0 even after the first operation,
+    /// and later calls return `false`.
     /// There's no way to read the limit back.
     ///
     /// - Parameter limit: The maximum number of threads,
