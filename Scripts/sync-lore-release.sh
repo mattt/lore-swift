@@ -7,6 +7,8 @@
 #
 #   --dry-run            Make the changes and show them, then restore the files.
 #                        Don't create the release, push, or open the pull request.
+#                        A dry run still rebuilds Vendor/liblore.xcframework
+#                        and Vendor/liblore.xcframework.zip.
 #   --release <version>  Use this Lore release instead of the latest one.
 #
 # The script compares the Lore release with LORE_VERSION and stops
@@ -50,7 +52,7 @@ while [ $# -gt 0 ]; do
         shift
         ;;
     -h | --help)
-        sed -n '3,27p' "$0" | sed 's/^# \{0,1\}//'
+        sed -n '3,29p' "$0" | sed 's/^# \{0,1\}//'
         exit 0
         ;;
     *)
@@ -134,7 +136,7 @@ version_greater() {
     [ "$a3" -gt "$b3" ]
 }
 
-# Fetches a Lore release from the GitHub API into the release variable.
+# Fetches a Lore release from the GitHub API into the release_json variable.
 # The script stops quietly when the API is unavailable or rate limited,
 # so that the next scheduled run tries again,
 # and fails when the request is refused or the release doesn't exist.
@@ -217,6 +219,22 @@ verify_asset() {
     rm "$work/$name"
 }
 
+# Starts the CI workflow on the update branch
+# unless it has run for the branch's head commit.
+start_ci() {
+    local head_sha="$1" runs
+    runs="$(gh api "repos/$REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$head_sha&per_page=1" \
+        --jq '.total_count')"
+    if [ "$runs" != "0" ]; then
+        echo "The CI workflow has run for $head_sha."
+    elif [ "$dry_run" = true ]; then
+        notice "Dry run: would start the CI workflow on $branch."
+    else
+        gh workflow run ci.yml --repo "$REPOSITORY" --ref "$branch"
+        notice "Started the CI workflow on $branch."
+    fi
+}
+
 # Applies sed expressions to a file in place,
 # keeping the file's permissions.
 edit() {
@@ -294,12 +312,18 @@ release_tag="liblore-$version"
 branch="mattt/update-lore-$version"
 
 open_pull_request="$(gh pr list --repo "$REPOSITORY" --head "$branch" --state open \
-    --json url --jq '.[0].url // empty')"
+    --json url,headRefOid --jq '.[0] | select(.) | "\(.url) \(.headRefOid)"')"
 if [ -n "$open_pull_request" ]; then
-    echo "Pull request $open_pull_request already updates the package to Lore $version; nothing to do."
+    echo "Pull request ${open_pull_request% *} already updates the package to Lore $version."
+    # An earlier run can open the pull request and fail to start CI.
+    start_ci "${open_pull_request##* }"
     exit 0
 fi
 
+if ! git diff --cached --quiet; then
+    error "Unstage the changes in the index first."
+    exit 1
+fi
 # shellcheck disable=SC2086
 if ! git diff --quiet HEAD -- $CHANGED_FILES; then
     error "Commit or discard the changes to $CHANGED_FILES first."
@@ -374,6 +398,15 @@ if [ "$release_exists" = true ] && grep -qxF "$ARCHIVE" <<<"$release_assets"; th
 else
     checksum="$(swift package compute-checksum "Vendor/$ARCHIVE")"
 fi
+checksum_pattern='^[0-9a-f]{64}$'
+if ! [[ "$checksum" =~ $checksum_pattern ]]; then
+    error "The checksum of $ARCHIVE isn't a SHA-256 digest."
+    exit 1
+fi
+if [ "$(grep -c 'checksum: "' Package.swift)" != "1" ]; then
+    error "Package.swift must have exactly one checksum, for the liblore binary target."
+    exit 1
+fi
 
 edit Package.swift \
     -e "s|/releases/download/liblore-$current_pattern/$ARCHIVE\"|/releases/download/$release_tag/$ARCHIVE\"|" \
@@ -427,14 +460,15 @@ elif ! grep -qxF "$ARCHIVE" <<<"$release_assets"; then
 fi
 
 git switch --force-create "$branch"
-# shellcheck disable=SC2086
-git add -- $CHANGED_FILES
+# The commit holds only the changed files, whatever the index has.
 if in_actions; then
+    # shellcheck disable=SC2086
     git -c user.name="github-actions[bot]" \
         -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-        commit --quiet --message "$title"
+        commit --quiet --message "$title" -- $CHANGED_FILES
 else
-    git commit --quiet --message "$title"
+    # shellcheck disable=SC2086
+    git commit --quiet --message "$title" -- $CHANGED_FILES
 fi
 restore=false
 
@@ -451,8 +485,7 @@ notice "Opened $pull_request."
 # GitHub doesn't run workflows for a pull request
 # that GITHUB_TOKEN opens, but it runs a dispatched workflow.
 if in_actions; then
-    gh workflow run ci.yml --repo "$REPOSITORY" --ref "$branch"
-    notice "Started the CI workflow on $branch."
+    start_ci "$(git rev-parse HEAD)"
 fi
 
 git switch --quiet "$BASE_BRANCH"

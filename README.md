@@ -350,6 +350,7 @@ and opens a pull request that updates the package to it.
 Run the workflow with `dry_run`,
 or run `Scripts/sync-lore-release.sh --dry-run`,
 to see the changes without publishing them.
+A dry run still rebuilds `Vendor/liblore.xcframework` and its archive.
 The workflow needs the repository setting
 that allows GitHub Actions to create pull requests.
 
