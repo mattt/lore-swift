@@ -171,7 +171,7 @@ let dependents = try await repository.dependents(of: ["hero.png"])
 ### Editing a revision without a working directory
 
 ```swift
-let tree = try await repository.loadRevisionTree(of: "main@2")
+let tree = try await repository.loadRevisionTree(of: .latest(on: "main"))
 let readme = try await tree.resolve("README.md").nodeID
 try await tree.move([.init(node: readme, to: .root, name: "README.txt")])
 try await tree.setMetadata(["ticket": .string("DOC-7")])
