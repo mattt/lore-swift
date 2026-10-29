@@ -344,22 +344,22 @@ extension Repository {
     /// - Parameters:
     ///   - branch: The name of the branch,
     ///     or `nil` for the current branch.
-    ///   - limit: The maximum number of revisions to list,
-    ///     or `nil` for the library's default of 30.
+    ///   - limit: The maximum number of revisions to list.
+    ///     The default is 30, the library's default.
     /// - Returns: The revisions.
     /// - Throws: ``LoreError`` if the library can't list the revisions,
     ///   or with ``LoreError/Code/invalidArguments``
     ///   if `limit` is less than 1.
-    public func latestRevisions(on branch: String? = nil, limit: Int? = nil) async throws -> [RevisionID] {
-        // The library reads a limit of 0 as its default.
-        if let limit, limit < 1 {
+    public func latestRevisions(on branch: String? = nil, limit: Int = 30) async throws -> [RevisionID] {
+        // The library reads a limit of 0 as its default, and has no value for no limit.
+        if limit < 1 {
             throw LoreError(code: .invalidArguments, message: "The limit must be at least 1, not \(limit).")
         }
         return try await perform(
             lore_branch_latest_list_async,
             configure: { (arguments: UnsafeMutablePointer<lore_branch_latest_list_args_t>, arena) in
                 arguments.pointee.branch = arena.string(branch)
-                arguments.pointee.limit = UInt32(clamping: limit ?? 0)
+                arguments.pointee.limit = UInt32(clamping: limit)
             },
             transform: { event -> RevisionID? in
                 guard event.pointee.tag == LORE_EVENT_BRANCH_LATEST_LIST_ENTRY.rawValue else {

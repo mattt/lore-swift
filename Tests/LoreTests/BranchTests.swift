@@ -151,6 +151,16 @@ import Testing
         #expect(error?.code == .invalidArguments)
     }
 
+    @Test func latestRevisionsListsThirtyByDefault() async throws {
+        let (repository, main, _) = try await repositoryWithFeatureBranch()
+        // Each reset of the other branch adds an entry to its list.
+        for index in 0 ..< 32 {
+            try await repository.resetBranch(named: "main", to: .id(main[index % 2].id))
+        }
+        #expect(try await repository.latestRevisions(on: "main").count == 30)
+        #expect(try await repository.latestRevisions(on: "main", limit: 40).count > 30)
+    }
+
     @Test func branchMetadataIncludesTheBranchRecord() async throws {
         let (repository, _, feature) = try await repositoryWithFeatureBranch()
         let metadata = try await repository.branchMetadata()
