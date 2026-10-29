@@ -77,6 +77,20 @@ import Testing
         #expect(try await store.contents(at: largePut.address, in: id) == large)
         #expect(try await store.storedContent(at: largePut.address, in: id)?.size == large.count)
 
+        // Compressed content has a payload smaller than its size.
+        try String(repeating: "a", count: 65536).write(
+            toFile: "\(repository.path)/compressible.txt",
+            atomically: true,
+            encoding: .utf8
+        )
+        try await repository.stage(["compressible.txt"])
+        try await repository.commit(message: "Compressible")
+        let compressed = try #require(try await repository.storedContent(of: "compressible.txt"))
+        let compressedMetadata = try await store.storedContent(at: compressed.address, in: id)
+        #expect(compressedMetadata == compressed)
+        #expect(compressedMetadata?.size == 65536)
+        #expect((compressedMetadata?.payloadSize ?? .max) < 65536)
+
         // Empty content isn't stored, and a zero hash reads as empty content.
         let empty = try await store.put(Data(), in: id, context: context)
         #expect(empty.address.hash == Array(repeating: 0, count: 32))
@@ -109,6 +123,18 @@ import Testing
         #expect(put.address.hash == (try await repository.storedContent(of: "a.txt"))?.address.hash)
         #expect(put.address.context == zeroContext)
         #expect(put.isStoredLocally)
+        let context = [UInt8](repeating: 5, count: 16)
+        let withContext = try await store.put(contentsOfFile: "\(repository.path)/a.txt", in: id, context: context)
+        #expect(withContext.address.hash == put.address.hash)
+        #expect(withContext.address.context == context)
+
+        // An empty file isn't stored, and its address has a zero hash.
+        let emptyFile = temporaryPath("empty")
+        FileManager.default.createFile(atPath: emptyFile, contents: Data())
+        let empty = try await store.put(contentsOfFile: emptyFile, in: id, context: context)
+        #expect(empty.address.hash == Array(repeating: 0, count: 32))
+        #expect(empty.address.context == context)
+        #expect(!empty.isStoredLocally)
 
         let destination = temporaryPath("written")
         try "existing".write(toFile: destination, atomically: true, encoding: .utf8)
@@ -168,6 +194,32 @@ import Testing
         try await store.close()
     }
 
+    @Test func readsFindContentByItsHash() async throws {
+        let (repository, id, _) = try await makeRepository()
+        let (_, otherID, _) = try await makeRepository()
+        let store = try await repository.openStore()
+        let context = [UInt8](repeating: 5, count: 16)
+        let put = try await store.put(Data("found\n".utf8), in: id, context: context)
+
+        // Lore 0.11.0 finds the hash under another partition and another context.
+        let otherContext = try #require(ContentAddress(hash: put.address.hash, context: zeroContext))
+        for (address, partition) in [(put.address, otherID), (otherContext, id)] {
+            #expect(try await store.contents(at: address, in: partition) == Data("found\n".utf8))
+            #expect(try await store.storedContent(at: address, in: partition)?.address == address)
+            let file = temporaryPath("found")
+            try await store.writeContents(at: address, in: partition, to: file)
+            #expect(try String(contentsOfFile: file, encoding: .utf8) == "found\n")
+        }
+
+        // Obliterating the content in a partition ends that.
+        let copy = try await store.copy(put.address, from: id, to: otherID)
+        try await store.obliterate(copy, in: otherID)
+        let gone = await #expect(throws: LoreError.self) { try await store.contents(at: copy, in: otherID) }
+        #expect(gone?.code == .addressNotFound)
+        #expect(try await store.contents(at: put.address, in: id) == Data("found\n".utf8))
+        try await store.close()
+    }
+
     @Test func flushesAndKeepsContentAfterClosing() async throws {
         let (repository, id, _) = try await makeRepository()
         let store = try await repository.openStore()
@@ -193,8 +245,8 @@ import Testing
 
         let obliteration = try await store.obliterate(address, in: id)
         #expect(obliteration.address == address)
-        #expect(obliteration.includesLocalStore)
-        #expect(!obliteration.includesServer)
+        #expect(obliteration.isRemovedLocally)
+        #expect(!obliteration.isRemovedFromServer)
         #expect(try await store.storedContent(at: address, in: id) == nil)
         // The repository's revision keeps the file without its content.
         let unreadable = await #expect(throws: LoreError.self) {
@@ -205,7 +257,7 @@ import Testing
         #expect(try await store.contents(at: copy, in: otherID) == Data("hello\n".utf8))
 
         // Obliterating content that's gone succeeds.
-        #expect(try await store.obliterate(address, in: id).includesLocalStore)
+        #expect(try await store.obliterate(address, in: id).isRemovedLocally)
         try await store.close()
     }
 
@@ -218,7 +270,7 @@ import Testing
         try await store.setValue(hash(2), forKey: key, in: id)
         #expect(try await store.value(forKey: key, in: id) == hash(2))
         // The kind is part of the key.
-        #expect(try await store.value(forKey: key, ofType: .resolve, in: id) == nil)
+        #expect(try await store.value(forKey: key, ofType: .published, in: id) == nil)
         // The local store replaces the third byte of a key with its kind.
         var sameKey = key.bytes
         sameKey[2] = 0x5a
@@ -255,6 +307,43 @@ import Testing
         )
         #expect(absent == .mismatched(current: nil))
 
+        // The all-zero hash means no value, as `nil` does.
+        let zeroCreated = try await store.compareAndSwap(
+            valueForKey: hash(5),
+            in: id,
+            expecting: hash(0),
+            replacingWith: hash(6)
+        )
+        #expect(zeroCreated == .swapped)
+        #expect(try await store.value(forKey: hash(5), in: id) == hash(6))
+        try await store.setValue(hash(0), forKey: hash(5), in: id)
+        #expect(try await store.value(forKey: hash(5), in: id) == nil)
+
+        // A create that finds a value loses and leaves the value.
+        let taken = try await store.compareAndSwap(valueForKey: key, in: id, expecting: nil, replacingWith: hash(7))
+        #expect(taken == .mismatched(current: hash(3)))
+        #expect(try await store.value(forKey: key, in: id) == hash(3))
+
+        // A swap of another kind changes only the value of that kind.
+        let published = try await store.compareAndSwap(
+            valueForKey: key,
+            ofType: .published,
+            in: id,
+            expecting: nil,
+            replacingWith: hash(8)
+        )
+        #expect(published == .swapped)
+        #expect(try await store.value(forKey: key, ofType: .published, in: id) == hash(8))
+        #expect(try await store.value(forKey: key, in: id) == hash(3))
+        let again = try await store.compareAndSwap(
+            valueForKey: key,
+            ofType: .published,
+            in: id,
+            expecting: nil,
+            replacingWith: hash(9)
+        )
+        #expect(again == .mismatched(current: hash(8)))
+
         try await store.setValue(nil, forKey: key, in: id)
         #expect(try await store.value(forKey: key, in: id) == nil)
         try await store.close()
@@ -265,20 +354,20 @@ import Testing
         let (_, otherID, _) = try await makeRepository()
         let store = try await repository.openStore()
 
-        try await store.setValue(hash(2), forKey: hash(1), ofType: .resolve, in: id)
-        try await store.setValue(hash(3), forKey: hash(1), ofType: .resolve, in: otherID)
+        try await store.setValue(hash(2), forKey: hash(1), ofType: .published, in: id)
+        try await store.setValue(hash(3), forKey: hash(1), ofType: .published, in: otherID)
         try await store.setValue(hash(4), forKey: hash(9), in: id)
         // A listed key has its kind in its third byte.
         var listedKey = hash(1).bytes
-        listedKey[2] = UInt8(ContentStore.KeyType.resolve.rawValue)
-        let listed = try await store.entries(ofType: .resolve, in: id)
+        listedKey[2] = UInt8(ContentStore.KeyType.published.rawValue)
+        let listed = try await store.entries(ofType: .published, in: id)
         #expect(listed == [.init(key: try #require(ContentStore.Hash(bytes: listedKey)), value: hash(2))])
-        #expect(try await store.value(forKey: listed[0].key, ofType: .resolve, in: id) == hash(2))
-        #expect(Set(try await store.entries(ofType: .resolve, in: nil).map(\.value)) == [hash(2), hash(3)])
+        #expect(try await store.value(forKey: listed[0].key, ofType: .published, in: id) == hash(2))
+        #expect(Set(try await store.entries(ofType: .published, in: nil).map(\.value)) == [hash(2), hash(3)])
         // Lore 0.11.0 lists no untyped keys.
         #expect(try await store.entries(ofType: .untyped, in: id).isEmpty)
-        try await store.setValue(nil, forKey: hash(1), ofType: .resolve, in: id)
-        #expect(try await store.entries(ofType: .resolve, in: id).isEmpty)
+        try await store.setValue(nil, forKey: hash(1), ofType: .published, in: id)
+        #expect(try await store.entries(ofType: .published, in: id).isEmpty)
 
         // The repository keeps the latest revision of its branch in the mutable store.
         let latest = try await store.entries(ofType: .branchLatest, in: id)
@@ -300,8 +389,8 @@ import Testing
         let resolved = try #require(try await store.contents(publishedAs: key, in: id, context: context))
         #expect(resolved.address == published.address)
         #expect(resolved.data == Data("published\n".utf8))
-        // The key is a key of type `resolve` whose value is the content's hash.
-        #expect(try await store.value(forKey: key, ofType: .resolve, in: id)?.bytes == published.address.hash)
+        // The key is a key of type `published` whose value is the content's hash.
+        #expect(try await store.value(forKey: key, ofType: .published, in: id)?.bytes == published.address.hash)
         #expect(try await store.contents(at: published.address, in: id) == Data("published\n".utf8))
 
         let file = temporaryPath("resolved")
@@ -311,15 +400,43 @@ import Testing
         #expect(try String(contentsOfFile: file, encoding: .utf8) == "published\n")
 
         // Publishing again replaces the content that the key names.
-        let fromFile = try await store.publish(contentsOfFile: "\(repository.path)/a.txt", as: key, in: id)
+        let fromFile = try await store.publish(
+            contentsOfFile: "\(repository.path)/a.txt",
+            as: key,
+            in: id,
+            context: context
+        )
         #expect(fromFile.address.hash == (try await repository.storedContent(of: "a.txt"))?.address.hash)
+        #expect(fromFile.address.context == context)
+        let resolvedFile = try await store.contents(publishedAs: key, in: id, context: context)
+        #expect(resolvedFile?.address == fromFile.address)
+        #expect(resolvedFile?.data == Data("hello\n".utf8))
+
+        // A path that can't be read doesn't remove the key.
+        let missingPath = await #expect(throws: LoreError.self) {
+            try await store.publish(contentsOfFile: "\(repository.path)/missing.txt", as: key, in: id)
+        }
+        #expect(missingPath?.code == .invalidArguments)
         #expect(try await store.contents(publishedAs: key, in: id)?.data == Data("hello\n".utf8))
+
+        // An empty file removes the key.
+        let emptyFile = temporaryPath("empty")
+        FileManager.default.createFile(atPath: emptyFile, contents: Data())
+        try await store.publish(contentsOfFile: emptyFile, as: key, in: id)
+        #expect(try await store.value(forKey: key, ofType: .published, in: id) == nil)
+        try await store.publish(Data("published\n".utf8), as: key, in: id)
 
         // Empty content removes the key, and a read of a missing key leaves the file.
         let removal = try await store.publish(Data(), as: key, in: id)
         #expect(removal.address.hash == Array(repeating: 0, count: 32))
         #expect(try await store.contents(publishedAs: key, in: id) == nil)
-        #expect(try await store.value(forKey: key, ofType: .resolve, in: id) == nil)
+        #expect(try await store.value(forKey: key, ofType: .published, in: id) == nil)
+        #expect(try await store.writeContents(publishedAs: key, in: id, to: file) == nil)
+        #expect(try String(contentsOfFile: file, encoding: .utf8) == "published\n")
+
+        // A key that names content the store doesn't hold reads as no content.
+        try await store.setValue(hash(5), forKey: key, ofType: .published, in: id)
+        #expect(try await store.contents(publishedAs: key, in: id) == nil)
         #expect(try await store.writeContents(publishedAs: key, in: id, to: file) == nil)
         #expect(try String(contentsOfFile: file, encoding: .utf8) == "published\n")
 
@@ -384,13 +501,13 @@ import Testing
         #expect(put.isStoredLocally)
         #expect(try await store.contents(at: put.address, in: id) == Data("memory\n".utf8))
         try await store.publish(Data("memory\n".utf8), as: hash(1), in: id)
-        let values = try await store.entries(ofType: .resolve, in: nil).map(\.value.bytes)
+        let values = try await store.entries(ofType: .published, in: nil).map(\.value.bytes)
         #expect(values == [put.address.hash])
         try await store.close()
 
         // A new store in memory is empty.
         let other = try await ContentStore.openInMemory()
-        #expect(try await other.entries(ofType: .resolve, in: nil).isEmpty)
+        #expect(try await other.entries(ofType: .published, in: nil).isEmpty)
         let missing = await #expect(throws: LoreError.self) { try await other.contents(at: put.address, in: id) }
         #expect(missing?.code == .addressNotFound)
         try await other.close()
@@ -475,7 +592,7 @@ import Testing
                     replacingWith: self.hash(2)
                 )
             },
-            { _ = try await store.entries(ofType: .resolve, in: id) },
+            { _ = try await store.entries(ofType: .published, in: id) },
             { _ = try await store.loadRevisionTree() },
             { _ = try await store.loadEmptyRevisionTree() },
         ]
@@ -629,13 +746,39 @@ import Testing
         let key = try #require(ContentStore.Hash(bytes: Array(repeating: 9, count: 32)))
         let published = try await store.publish(Data("published\n".utf8), as: key, in: id, uploading: true)
         #expect(published.isStoredOnServer)
+        #expect(!published.isStoredLocally)
+
+        // The file variants do the same.
+        let file = temporaryPath("upload")
+        try "uploaded file\n".write(toFile: file, atomically: true, encoding: .utf8)
+        let context = [UInt8](repeating: 5, count: 16)
+        let uploadedFile = try await store.put(contentsOfFile: file, in: id, context: context, uploading: true)
+        #expect(uploadedFile.isStoredOnServer)
+        #expect(!uploadedFile.isStoredLocally)
+        #expect(uploadedFile.address.context == context)
+        let fileKey = try #require(ContentStore.Hash(bytes: Array(repeating: 8, count: 32)))
+        try "published file\n".write(toFile: file, atomically: true, encoding: .utf8)
+        let publishedFile = try await store.publish(
+            contentsOfFile: file,
+            as: fileKey,
+            in: id,
+            context: context,
+            uploading: true
+        )
+        #expect(publishedFile.isStoredOnServer)
+        #expect(!publishedFile.isStoredLocally)
         try await store.close()
 
-        // Another store reads both from the server.
+        // Another store reads them from the server.
         let memory = try await ContentStore.openInMemory(connectingTo: url, options: repository.options)
         #expect(try await memory.contents(at: uploaded.address, in: id) == Data("uploaded at once\n".utf8))
         #expect(try await memory.contents(at: local.address, in: id) == Data("uploaded later\n".utf8))
+        #expect(try await memory.contents(at: uploadedFile.address, in: id) == Data("uploaded file\n".utf8))
         #expect(try await memory.contents(publishedAs: key, in: id)?.data == Data("published\n".utf8))
+        let resolvedFile = try await memory.contents(publishedAs: fileKey, in: id, context: context)
+        #expect(resolvedFile?.data == Data("published file\n".utf8))
+        // The mutable store methods read only the local store.
+        #expect(try await memory.value(forKey: key, ofType: .published, in: id) == nil)
         try await memory.close()
 
         // An offline store doesn't connect.
@@ -659,8 +802,8 @@ import Testing
         #expect(try await serverEntry(for: put.address, in: repository)?.match == .address)
 
         let obliteration = try await store.obliterate(put.address, in: id)
-        #expect(obliteration.includesLocalStore)
-        #expect(obliteration.includesServer)
+        #expect(obliteration.isRemovedLocally)
+        #expect(obliteration.isRemovedFromServer)
         #expect(try await serverEntry(for: put.address, in: repository)?.match == .notFound)
         let gone = await #expect(throws: LoreError.self) { try await store.contents(at: put.address, in: id) }
         #expect(gone?.code == .addressNotFound)

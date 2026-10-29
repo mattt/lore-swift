@@ -21,18 +21,24 @@ import Synchronization
 ///   Use ``value(forKey:ofType:in:)``, ``setValue(_:forKey:ofType:in:)``,
 ///   ``compareAndSwap(valueForKey:ofType:in:expecting:replacingWith:)``,
 ///   and ``entries(ofType:in:)``.
+///   These methods read and write only the local mutable store,
+///   also in a store with a server.
 ///
-/// Content is *published* when a key of type ``KeyType/resolve``
+/// Content is *published* when a key of type ``KeyType/published``
 /// in the mutable store names its hash.
 /// ``publish(_:as:in:context:uploading:)`` stores content and publishes it in one call,
 /// and ``contents(publishedAs:in:context:)`` resolves a key and reads the content it names.
 /// The library calls these the *resolved* variants of put and get.
 ///
-/// Every method takes a partition: the ``RepositoryID`` of a repository,
+/// The methods that read and write content and keys take a partition:
+/// the ``RepositoryID`` of a repository,
 /// such as the store's ``repositoryID``,
 /// under which the store records content and keys.
-/// In Lore 0.11.0, a read finds content by its hash
-/// even when the store records it under another partition or context.
+/// ``copy(_:from:to:context:)`` takes a source and a target partition,
+/// and ``entries(ofType:in:)`` takes `nil` to list every partition.
+/// In Lore 0.11.0, a read in one partition also finds content
+/// that the store records with the same hash under another partition or context,
+/// unless you obliterated the content in the partition that you read.
 ///
 /// A store opened with a server's URL
 /// can also write content to the server and read it from there;
@@ -300,6 +306,11 @@ extension ContentStore {
     /// A 256-bit hash: a key or a value in the mutable store.
     ///
     /// Its ``description`` is 64 lowercase hexadecimal digits.
+    ///
+    /// The library uses the all-zero hash to mean "no value":
+    /// setting a key to it removes the key,
+    /// and the store's methods report a key without a value as `nil`,
+    /// never as the all-zero hash.
     public struct Hash: Sendable, Hashable {
         /// The 32 bytes of the hash.
         public let bytes: [UInt8]
@@ -340,6 +351,12 @@ extension ContentStore {
             self.bytes = bytes
         }
 
+        /// A Boolean value that indicates whether every byte of the hash is zero,
+        /// which the library uses to mean "no value".
+        var isZero: Bool {
+            !bytes.contains { $0 != 0 }
+        }
+
         /// The library hash.
         var libraryValue: lore_hash_t {
             var hash = lore_hash_t()
@@ -356,7 +373,7 @@ extension ContentStore {
     /// with the raw value of its kind,
     /// so keys that differ only in that byte name the same value.
     /// The library keeps a repository's branches, metadata, and instances
-    /// in the mutable store under the kinds other than ``untyped`` and ``resolve``,
+    /// in the mutable store under the kinds other than ``untyped`` and ``published``,
     /// so changing those values changes the repository.
     ///
     /// Corresponds to `lore_key_type_t`.
@@ -386,7 +403,7 @@ extension ContentStore {
         /// A key whose value is the hash of published content.
         ///
         /// See ``ContentStore/publish(_:as:in:context:uploading:)``.
-        public static let resolve = Self(rawValue: LORE_KEY_TYPE_RESOLVE.rawValue)
+        public static let published = Self(rawValue: LORE_KEY_TYPE_RESOLVE.rawValue)
     }
 
     /// Where a store put content.
@@ -399,10 +416,13 @@ extension ContentStore {
 
         /// A Boolean value that indicates whether the local store holds the content.
         ///
-        /// It's `false` for empty content that ``ContentStore/put(_:in:context:uploading:)`` doesn't store,
-        /// and for content that a store with a server writes with `uploading`:
-        /// Lore 0.11.0 writes its bytes only to the server,
-        /// and reads fetch them from there.
+        /// It's `false` for empty content that the put methods don't store.
+        /// It's also `false` for content that a store with a server
+        /// puts or publishes with `uploading`,
+        /// with the data or the file variant of either method:
+        /// Lore 0.11.0 writes the bytes only to the server,
+        /// although the header says that a publish always writes the local store,
+        /// and reads fetch the bytes from the server.
         public var isStoredLocally: Bool
 
         /// A Boolean value that indicates whether the server holds the content.
@@ -442,19 +462,19 @@ extension ContentStore {
     }
 
     /// The sides of a store that an obliteration acted on.
-    public struct Obliteration: Sendable, Hashable {
+    public struct ObliterateResult: Sendable, Hashable {
         /// The address of the content.
         public var address: ContentAddress
 
         /// A Boolean value that indicates whether the content was removed from the local store,
         /// or the local store didn't hold it.
-        public var includesLocalStore: Bool
+        public var isRemovedLocally: Bool
 
         /// A Boolean value that indicates whether the content was removed from the server,
         /// or the server didn't hold it.
         ///
         /// It's `false` for a store without a server.
-        public var includesServer: Bool
+        public var isRemovedFromServer: Bool
     }
 }
 
@@ -512,8 +532,8 @@ extension ContentStore {
 
     /// Stores the content of a file.
     ///
-    /// The library reads the file in parts,
-    /// so the content is never in memory at once.
+    /// The library reads the file itself,
+    /// so you don't load the content into memory.
     ///
     /// - Parameters:
     ///   - path: The path of the file,
@@ -587,8 +607,8 @@ extension ContentStore {
 
     /// Writes content to a file.
     ///
-    /// The library writes the file in parts,
-    /// so the content is never in memory at once.
+    /// The library writes the file itself,
+    /// so you don't load the content into memory.
     /// It replaces a file at `path`.
     ///
     /// - Parameters:
@@ -743,7 +763,7 @@ extension ContentStore {
     /// - Returns: The sides of the store that the obliteration acted on.
     /// - Throws: ``LoreError`` if either side can't remove the content.
     @discardableResult
-    public func obliterate(_ address: ContentAddress, in partition: RepositoryID) async throws -> Obliteration {
+    public func obliterate(_ address: ContentAddress, in partition: RepositoryID) async throws -> ObliterateResult {
         let hasServer = serverURL != nil
         let events = try await call(
             lore_storage_obliterate_async,
@@ -755,18 +775,18 @@ extension ContentStore {
                 item.pointee.address = address.libraryValue
                 arguments.pointee.items = lore_storage_obliterate_item_array_t(ptr: item, count: 1)
             },
-            transform: { event -> ItemEvent<Obliteration>? in
+            transform: { event -> ItemEvent<ObliterateResult>? in
                 guard event.pointee.tag == LORE_EVENT_STORAGE_OBLITERATE_ITEM_COMPLETE.rawValue else {
                     return nil
                 }
                 let data = event.pointee.storage_obliterate_item_complete
                 return ItemEvent(
                     error: data.error,
-                    value: Obliteration(
+                    value: ObliterateResult(
                         address: ContentAddress(data.address),
-                        includesLocalStore: Bool(data.local_success) && !Bool(data.local_skipped),
+                        isRemovedLocally: Bool(data.local_success) && !Bool(data.local_skipped),
                         // Without a server, the library reports the server's side as a success.
-                        includesServer: hasServer && Bool(data.remote_success) && !Bool(data.remote_skipped)
+                        isRemovedFromServer: hasServer && Bool(data.remote_success) && !Bool(data.remote_skipped)
                     )
                 )
             }
@@ -818,15 +838,16 @@ extension ContentStore {
 extension ContentStore {
     /// Stores content and publishes it under a key, in one call.
     ///
-    /// The key, of type ``KeyType/resolve``, then names the content's hash,
+    /// The key, of type ``KeyType/published``, then names the content's hash,
     /// and ``contents(publishedAs:in:context:)`` reads the content.
     /// The library writes the key only after it stores the content,
     /// so the key never names content that the store doesn't hold.
-    /// The last call to publish under a key wins:
-    /// to detect that another caller published first,
+    /// The last call to publish under a key wins.
+    /// To detect that another caller of the same local store published first,
     /// ``put(_:in:context:uploading:)`` the content and then
     /// ``compareAndSwap(valueForKey:ofType:in:expecting:replacingWith:)``
-    /// the key.
+    /// the key of type ``KeyType/published``;
+    /// that doesn't detect a key that another computer published to the server.
     ///
     /// The method copies `data` into memory that the library reads during the call,
     /// so the content is in memory twice.
@@ -843,7 +864,8 @@ extension ContentStore {
     ///   - context: The 16-byte context of the content's address,
     ///     or `nil` for a zero context.
     ///     Pass the same context to read the key.
-    ///   - uploading: Whether to write the content and the key to the store's server.
+    ///   - uploading: Whether to write the content and the key to the store's server;
+    ///     see ``PutResult/isStoredLocally``.
     /// - Returns: The address of the content that the key names, and where the store put it.
     /// - Throws: ``LoreError`` if the store can't store or publish the content,
     ///   such as ``LoreError/Code/invalidArguments`` for a key of all zeros.
@@ -887,7 +909,8 @@ extension ContentStore {
     ///   - context: The 16-byte context of the content's address,
     ///     or `nil` for a zero context.
     ///     Pass the same context to read the key.
-    ///   - uploading: Whether to write the content and the key to the store's server.
+    ///   - uploading: Whether to write the content and the key to the store's server;
+    ///     see ``PutResult/isStoredLocally``.
     /// - Returns: The address of the content that the key names, and where the store put it.
     /// - Throws: ``LoreError`` if the store can't store or publish the content,
     ///   such as ``LoreError/Code/invalidArguments``
@@ -920,7 +943,7 @@ extension ContentStore {
 
     /// Reads the content that a key names into memory.
     ///
-    /// The method resolves the key, of type ``KeyType/resolve``, to a hash,
+    /// The method resolves the key, of type ``KeyType/published``, to a hash,
     /// and reads the content at that hash and `context`, in one call.
     /// It returns the whole content in one `Data` value.
     /// For large content, use ``writeContents(publishedAs:in:context:to:)``.
@@ -965,7 +988,7 @@ extension ContentStore {
 
     /// Writes the content that a key names to a file.
     ///
-    /// The method resolves the key, of type ``KeyType/resolve``, to a hash,
+    /// The method resolves the key, of type ``KeyType/published``, to a hash,
     /// and writes the content at that hash and `context`, in one call.
     /// The library writes the file in parts,
     /// so the content is never in memory at once.
@@ -1015,6 +1038,11 @@ extension ContentStore {
 extension ContentStore {
     /// Returns the value of a key in the mutable store.
     ///
+    /// The method reads only the local mutable store,
+    /// also in a store with a server.
+    /// To read content that a key on the server names,
+    /// use ``contents(publishedAs:in:context:)``.
+    ///
     /// - Parameters:
     ///   - key: The key.
     ///   - type: The kind of value that the key refers to.
@@ -1050,8 +1078,11 @@ extension ContentStore {
 
     /// Sets or removes the value of a key in the mutable store.
     ///
+    /// The method writes only the local mutable store,
+    /// also in a store with a server.
+    ///
     /// - Parameters:
-    ///   - value: The value, or `nil` to remove the key.
+    ///   - value: The value, or `nil` or the all-zero hash to remove the key.
     ///   - key: The key.
     ///   - type: The kind of value that the key refers to.
     ///   - partition: The repository whose key it is.
@@ -1090,7 +1121,10 @@ extension ContentStore {
     /// only if the key holds an expected value.
     ///
     /// The store compares and writes in one step,
-    /// so another caller can't change the key in between.
+    /// so another caller of the same local store can't change the key in between.
+    /// The method uses only the local mutable store,
+    /// also in a store with a server,
+    /// so it doesn't see keys that other computers write to the server.
     /// A key that holds another value isn't an error:
     /// the result reports the value that the key holds.
     ///
@@ -1099,8 +1133,9 @@ extension ContentStore {
     ///   - type: The kind of value that the key refers to.
     ///   - partition: The repository whose key it is.
     ///   - expected: The value that the key must hold,
-    ///     or `nil` for a key without a value.
-    ///   - newValue: The value to set, or `nil` to remove the key.
+    ///     or `nil` or the all-zero hash for a key without a value.
+    ///   - newValue: The value to set,
+    ///     or `nil` or the all-zero hash to remove the key.
     /// - Returns: ``SwapResult/swapped`` if the key held `expected`,
     ///   or ``SwapResult/mismatched(current:)`` with the value that the key holds.
     /// - Throws: ``LoreError`` if the store can't read or write the key.
@@ -1140,7 +1175,10 @@ extension ContentStore {
         // The library reports the value that the key held before the call,
         // which is the expected value when the swap took effect.
         let previous = try ContentStore.value(of: events)
-        return previous == expected ? .swapped : .mismatched(current: previous)
+        // The library reads an all-zero `expected` as "no value", as it does `nil`,
+        // and reports "no value" as `nil`.
+        let wanted = expected.flatMap { $0.isZero ? nil : $0 }
+        return previous == wanted ? .swapped : .mismatched(current: previous)
     }
 
     /// Lists the keys of a kind in the mutable store, with their values.
