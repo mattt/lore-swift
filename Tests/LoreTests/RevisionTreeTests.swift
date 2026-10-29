@@ -470,14 +470,55 @@ import Testing
         #expect(fourth.creator == "carol@example.com")
         #expect(fourth.metadata["committed-by"] == .number(1))
 
+        // A value that you set for one key leaves the other key to the commit.
+        try await other.setMetadata(["created-by": .string("dave@example.com")])
+        let fifth = try await other.commit(message: "Dave")
+        #expect(fifth.creator == "dave@example.com")
+        #expect(fifth.metadata["committed-by"] == .string("bob@example.com"))
+        try await other.setMetadata(["committed-by": .number(2)])
+        let sixth = try await other.commit(message: "Two")
+        #expect(sixth.creator == "bob@example.com")
+        #expect(sixth.metadata["committed-by"] == .number(2))
+
         // Without edits, the identity is enough to commit a revision with the same files.
-        let fifth = try await other.commit()
-        #expect(fifth.parents == [fourth.id])
-        #expect(fifth.message == nil)
-        #expect(fifth.creator == "bob@example.com")
-        #expect(try await created.changes(in: .id(fifth.id)).isEmpty)
+        let seventh = try await other.commit()
+        #expect(seventh.parents == [sixth.id])
+        #expect(seventh.message == nil)
+        #expect(seventh.creator == "bob@example.com")
+        #expect(try await created.changes(in: .id(seventh.id)).isEmpty)
         try await other.close()
+
+        // An empty identity in the options means none, so the commit uses the configured one.
+        let empty = Repository(path: created.path, options: Repository.Options(identity: "", isOffline: true))
+        let last = try await empty.loadRevisionTree(of: .id(seventh.id))
+        let eighth = try await last.commit(message: "Empty")
+        #expect(eighth.creator == "test@example.com")
+        #expect(eighth.metadata["committed-by"] == .string("test@example.com"))
+        try await last.close()
         #expect(first.number == 1)
+    }
+
+    @Test func readsBothParentsOfAMerge() async throws {
+        let repository = try await makeOfflineRepository()
+        try repository.write("base\n", to: "a.txt")
+        try await repository.stage(["."])
+        try await repository.commit(message: "Base")
+        try await repository.createBranch(named: "feature")
+        try await repository.switchBranch(to: "feature")
+        try repository.write("sea\n", to: "c.txt")
+        try await repository.stage(["."])
+        let feature = try await repository.commit(message: "Feature")
+        try await repository.switchBranch(to: "main")
+        try repository.write("bee\n", to: "b.txt")
+        try await repository.stage(["."])
+        let main = try await repository.commit(message: "Main")
+        let merge = try #require(try await repository.mergeBranch(named: "feature", message: "Merge").revision)
+
+        let tree = try await repository.loadRevisionTree(of: .id(merge.id))
+        let info = try await tree.info()
+        #expect(info.revision == merge.id)
+        #expect(info.parents == [main.id, feature.id])
+        try await tree.close()
     }
 
     @Test func commitWithoutAnIdentityNeedsSomethingToCommit() async throws {
@@ -700,6 +741,33 @@ import Testing
         let reloaded = try await repository.loadRevisionTree()
         #expect(try await reloaded.node(a).stagedAction == .unchanged)
         try await reloaded.close()
+    }
+}
+
+/// Tests of the library values that the binding writes for revision trees.
+@Suite struct RevisionTreeValueTests {
+    @Test(arguments: [
+        (MetadataValue.string("text"), 16),
+        (.number(.max), 8),
+        (.boolean(true), 1),
+        (.binary([1, 2, 3]), 16),
+        (.hash(Array(repeating: 0xff, count: 32)), 32),
+        (.context(Array(repeating: 0xff, count: 16)), 16),
+        (.address(hash: Array(repeating: 0xff, count: 32), context: Array(repeating: 0xff, count: 16)), 48),
+    ])
+    func metadataValuesKeepTheirPaddingZero(_ value: MetadataValue, memberSize: Int) throws {
+        // The header requires every byte of a structure to be zero,
+        // padding included, unless the binding sets it.
+        let arena = Arena()
+        let entry = arena.allocate(lore_revision_tree_metadata_set_entry_t.self)
+        let metadata = try #require((entry).pointer(to: \.value))
+        value.write(to: metadata, in: arena)
+        let bytes = Array(UnsafeRawBufferPointer(start: metadata, count: MemoryLayout<lore_metadata_t>.size))
+        // The tag is 4 bytes, and the union starts at 8.
+        #expect(bytes[4 ..< 8].allSatisfy { $0 == 0 })
+        #expect(bytes[(8 + memberSize)...].allSatisfy { $0 == 0 })
+        #expect(MetadataValue(metadata.pointee) == value)
+        withExtendedLifetime(arena) {}
     }
 }
 

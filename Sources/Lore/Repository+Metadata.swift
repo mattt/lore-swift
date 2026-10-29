@@ -86,44 +86,46 @@ extension MetadataValue {
         }
     }
 
-    /// Copies the value into a library metadata value,
+    /// Writes the value into a library metadata value in zero-filled memory,
     /// which the revision tree functions take.
     ///
+    /// The method sets the tag and one member of the union in place,
+    /// so the padding after the tag keeps the zeros that the header requires.
+    /// A whole `lore_metadata_t` that Swift copies into the memory
+    /// can leave other bytes in the padding.
     /// Call ``checkByteCounts(forKey:)`` first.
-    func libraryValue(in arena: Arena) -> lore_metadata_t {
-        var value = lore_metadata_t()
+    func write(to value: UnsafeMutablePointer<lore_metadata_t>, in arena: Arena) {
         switch self {
         case .string(let string):
-            value.tag = LORE_METADATA_TYPE_STRING.rawValue
-            value.string = arena.string(string)
+            value.pointee.tag = LORE_METADATA_TYPE_STRING.rawValue
+            value.pointee.string = arena.string(string)
         case .number(let number):
-            value.tag = LORE_METADATA_TYPE_NUMERIC.rawValue
-            value.numeric = number
+            value.pointee.tag = LORE_METADATA_TYPE_NUMERIC.rawValue
+            value.pointee.numeric = number
         case .boolean(let boolean):
-            value.tag = LORE_METADATA_TYPE_BOOLEAN.rawValue
-            value.boolean = UInt8(boolean)
+            value.pointee.tag = LORE_METADATA_TYPE_BOOLEAN.rawValue
+            value.pointee.boolean = UInt8(boolean)
         case .binary(let bytes):
-            value.tag = LORE_METADATA_TYPE_BINARY.rawValue
+            value.pointee.tag = LORE_METADATA_TYPE_BINARY.rawValue
             let buffer = arena.array(bytes)
-            value.binary = lore_binary_t(payload: buffer.pointer, length: UInt(buffer.count))
+            value.pointee.binary = lore_binary_t(payload: buffer.pointer, length: UInt(buffer.count))
         case .hash(let bytes):
-            value.tag = LORE_METADATA_TYPE_HASH.rawValue
+            value.pointee.tag = LORE_METADATA_TYPE_HASH.rawValue
             var hash = lore_hash_t()
             setTupleBytes(&hash.data, to: bytes)
-            value.hash = hash
+            value.pointee.hash = hash
         case .context(let bytes):
-            value.tag = LORE_METADATA_TYPE_CONTEXT.rawValue
+            value.pointee.tag = LORE_METADATA_TYPE_CONTEXT.rawValue
             var context = lore_context_t()
             setTupleBytes(&context.data, to: bytes)
-            value.context = context
+            value.pointee.context = context
         case .address(let hash, let context):
-            value.tag = LORE_METADATA_TYPE_ADDRESS.rawValue
+            value.pointee.tag = LORE_METADATA_TYPE_ADDRESS.rawValue
             var address = lore_address_t()
             setTupleBytes(&address.hash.data, to: hash)
             setTupleBytes(&address.context.data, to: context)
-            value.address = address
+            value.pointee.address = address
         }
-        return value
     }
 
     /// The type and text that the library's metadata set functions take for the value,

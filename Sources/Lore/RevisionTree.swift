@@ -920,11 +920,13 @@ extension RevisionTree {
 
 extension RevisionTree {
     /// Returns the metadata values for keys
-    /// that the tree holds for the next commit,
-    /// which are the values that you set with ``setMetadata(_:)``.
+    /// that the tree holds for the next commit.
     ///
-    /// The values that ``commit(message:)`` adds,
-    /// such as the branch and the time,
+    /// The tree holds the values that you set with ``setMetadata(_:)``
+    /// and, after a commit that failed,
+    /// the `message`, `created-by`, and `committed-by` values
+    /// that ``commit(message:)`` set.
+    /// The branch and the time that the library adds during a commit
     /// aren't among them.
     ///
     /// - Parameters:
@@ -950,8 +952,9 @@ extension RevisionTree {
     }
 
     /// Returns the metadata value for a key
-    /// that the tree holds for the next commit,
-    /// which is the value that you set with ``setMetadata(_:)``.
+    /// that the tree holds for the next commit.
+    ///
+    /// See ``metadata(forKeys:includingLoadedRevision:)`` for the values that the tree holds.
     ///
     /// - Parameters:
     ///   - key: The metadata key.
@@ -1092,7 +1095,8 @@ extension RevisionTree {
                 for (index, entry) in entries.enumerated() {
                     buffer[index].entry_id = UInt64(index + 1)
                     buffer[index].key = arena.string(entry.key)
-                    buffer[index].value = entry.value.libraryValue(in: arena)
+                    // A stored property, so the key path names its memory.
+                    entry.value.write(to: (buffer + index).pointer(to: \.value)!, in: arena)
                 }
                 arguments.pointee.entries = lore_revision_tree_metadata_set_entry_array_t(
                     ptr: buffer,
@@ -1155,7 +1159,8 @@ extension RevisionTree {
             // only for operations on a working directory,
             // although the header says that a tree commit records it.
             let identity: String?
-            if let configured = repository.options.identity {
+            // An empty identity in the options means none, as it does for other operations.
+            if let configured = repository.options.identity, !configured.isEmpty {
                 identity = configured
             } else {
                 identity = try await repository.configurationValue(forKey: .identity)
