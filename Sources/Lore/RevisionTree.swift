@@ -404,7 +404,7 @@ extension RevisionTree {
         public var parents: [RevisionID]
 
         /// The time the revision was created.
-        public var creationDate: Date?
+        public var date: Date?
 
         /// The identity of the revision's author,
         /// or `nil` if the revision doesn't record one.
@@ -449,7 +449,7 @@ extension RevisionTree {
                     repositoryID: RepositoryID(data.repository),
                     revision: RevisionID(data.revision),
                     parents: [RevisionID(data.parent.0), RevisionID(data.parent.1)].compactMap { $0 },
-                    creationDate: data.creation_timestamp > 0
+                    date: data.creation_timestamp > 0
                         ? Date(millisecondsSince1970: UInt64(data.creation_timestamp)) : nil,
                     creator: data.author_identity.length > 0 ? String(data.author_identity) : nil,
                     metadataCount: Int(data.metadata_key_count)

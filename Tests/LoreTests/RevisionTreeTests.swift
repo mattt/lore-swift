@@ -80,7 +80,7 @@ import Testing
         #expect(info.revision == revision.id)
         #expect(info.parents.isEmpty)
         #expect(info.creator == "test@example.com")
-        #expect(info.creationDate.map { abs($0.timeIntervalSince(revision.date!)) < 0.002 } == true)
+        #expect(info.date.map { abs($0.timeIntervalSince(revision.date!)) < 0.002 } == true)
         #expect(info.metadataCount == revision.metadata.count)
 
         let root = try await tree.resolve("")
