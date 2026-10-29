@@ -13,11 +13,11 @@ public enum RepositoryNotification: Sendable, Hashable {
     ///
     /// - Parameters:
     ///   - branchID: The branch.
-    ///   - revisionID: The new latest revision of the branch.
+    ///   - revision: The new latest revision of the branch.
     ///   - revisionNumber: The number of the revision on the branch.
     ///   - userID: The identifier of the user who pushed,
     ///     or `<unknown>` for a server that doesn't authenticate its users.
-    case branchPushed(branchID: BranchID, revisionID: RevisionID, revisionNumber: Int, userID: String)
+    case branchPushed(branchID: BranchID, revision: RevisionID, revisionNumber: Int, userID: String)
 
     /// A user locked files.
     ///
@@ -49,8 +49,8 @@ extension Repository {
     ///
     /// ```swift
     /// for await notification in try await repository.notifications() {
-    ///     if case .branchPushed(_, let revisionID, _, let userID) = notification {
-    ///         print(userID, "pushed", revisionID)
+    ///     if case .branchPushed(_, let revision, _, let userID) = notification {
+    ///         print(userID, "pushed", revision)
     ///     }
     /// }
     /// ```
@@ -386,12 +386,12 @@ extension RepositoryNotification {
             self = .branchDeleted(branchID: branchID)
         case LORE_EVENT_NOTIFICATION_BRANCH_PUSHED.rawValue:
             let data = event.pointee.notification_branch_pushed
-            guard let branchID = BranchID(data.branch), let revisionID = RevisionID(data.revision) else {
+            guard let branchID = BranchID(data.branch), let revision = RevisionID(data.revision) else {
                 return nil
             }
             self = .branchPushed(
                 branchID: branchID,
-                revisionID: revisionID,
+                revision: revision,
                 revisionNumber: Int(clamping: data.revision_number),
                 userID: String(data.user_id)
             )

@@ -396,7 +396,7 @@ extension Result where Failure == any Error {
         let pushed = try await commitAndPush("from bob\n", in: bob)
         #expect(
             try await collector.first { if case .branchPushed = $0 { true } else { false } }
-                == .branchPushed(branchID: mainID, revisionID: pushed.id, revisionNumber: 2, userID: "<unknown>")
+                == .branchPushed(branchID: mainID, revision: pushed.id, revisionNumber: 2, userID: "<unknown>")
         )
 
         try await bob.createBranch(named: "feature")
@@ -406,7 +406,7 @@ extension Result where Failure == any Error {
         #expect(try await collector.first { $0 == .branchCreated(branchID: featureID) } != nil)
         #expect(
             try await collector.first {
-                $0 == .branchPushed(branchID: featureID, revisionID: feature.id, revisionNumber: 3, userID: "<unknown>")
+                $0 == .branchPushed(branchID: featureID, revision: feature.id, revisionNumber: 3, userID: "<unknown>")
             } != nil
         )
 
@@ -433,7 +433,7 @@ extension Result where Failure == any Error {
         let own = try await commitAndPush("from alice\n", in: alice)
         #expect(
             try await collector.first {
-                $0 == .branchPushed(branchID: mainID, revisionID: own.id, revisionNumber: 3, userID: "<unknown>")
+                $0 == .branchPushed(branchID: mainID, revision: own.id, revisionNumber: 3, userID: "<unknown>")
             } != nil
         )
 
@@ -558,7 +558,7 @@ extension Result where Failure == any Error {
             }
             #expect(
                 notification
-                    == .branchPushed(branchID: mainID, revisionID: four.id, revisionNumber: 4, userID: "<unknown>")
+                    == .branchPushed(branchID: mainID, revision: four.id, revisionNumber: 4, userID: "<unknown>")
             )
         }
         try await expectUnsubscribed(repositoryID, renewed)

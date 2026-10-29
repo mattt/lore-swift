@@ -214,8 +214,8 @@ try await repository.unlock(["hero.png"])
 ```swift
 for await notification in try await repository.notifications() {
     switch notification {
-    case .branchPushed(_, let revisionID, _, let userID):
-        print(userID, "pushed", revisionID)
+    case .branchPushed(_, let revision, _, let userID):
+        print(userID, "pushed", revision)
     case .filesLocked(let paths, _, let userID):
         print(userID, "locked", paths)
     default:
