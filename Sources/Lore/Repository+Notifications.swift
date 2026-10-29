@@ -2,6 +2,10 @@ import CLore
 import Synchronization
 
 /// A change on the server that a notification subscription reports.
+///
+/// Later versions of the package can add cases
+/// for the kinds of notification that later versions of Lore add,
+/// so include a `default` case in a `switch` over a notification.
 public enum RepositoryNotification: Sendable, Hashable {
     /// A branch was created.
     case branchCreated(branchID: BranchID)
