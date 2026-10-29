@@ -162,7 +162,8 @@ cat >"$provider/files/.well-known/openid-configuration" <<EOF
   "issuer": "$ISSUER",
   "jwks_uri": "$ISSUER/jwks.json",
   "device_authorization_endpoint": "$ISSUER/device",
-  "token_endpoint": "$ISSUER/token"
+  "token_endpoint": "$ISSUER/token",
+  "revocation_endpoint": "$ISSUER/revoke"
 }
 EOF
 # The provider can take seconds to answer on a CI runner,
