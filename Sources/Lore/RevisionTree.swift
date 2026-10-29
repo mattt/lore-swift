@@ -5,7 +5,9 @@ import Foundation
 /// so that you can read and edit it without a working directory.
 ///
 /// Load a tree with ``Repository/loadRevisionTree(of:)``
-/// or ``Repository/loadEmptyRevisionTree()``.
+/// or ``Repository/loadEmptyRevisionTree()``,
+/// or from an open store with ``ContentStore/loadRevisionTree(of:)``
+/// or ``ContentStore/loadEmptyRevisionTree()``.
 /// A tree belongs to one repository
 /// and holds one revision at a time.
 /// Edits to the tree,
@@ -17,7 +19,8 @@ import Foundation
 ///
 /// Nodes are identified by ``NodeID``.
 /// Add content by its ``ContentAddress`` in the repository's store,
-/// such as the address of another file.
+/// such as the address of another file
+/// or of content that you put with ``ContentStore/put(_:in:context:uploading:)``.
 ///
 /// A loaded tree holds library resources
 /// and the claim of the repository's store,
@@ -218,23 +221,13 @@ extension Repository {
         guard let storeID = stores.last else {
             throw LoreError.missingEvent("a store")
         }
-        let trees: [UInt64]
+        let tree: RevisionTree
         do {
-            trees = try await perform(
-                lore_revision_tree_load_async,
-                configure: { (arguments: UnsafeMutablePointer<lore_revision_tree_load_args_t>, _) in
-                    arguments.pointee.store = lore_store_t(handle_id: storeID)
-                    arguments.pointee.repository = repositoryID.libraryValue
-                    if let revisionID {
-                        arguments.pointee.revision_hash = revisionID.libraryValue
-                    }
-                },
-                transform: { event -> UInt64? in
-                    guard event.pointee.tag == LORE_EVENT_REVISION_TREE_LOADED.rawValue else {
-                        return nil
-                    }
-                    return event.pointee.revision_tree_loaded.handle_id
-                }
+            tree = try await loadRevisionTree(
+                revisionID: revisionID,
+                repositoryID: repositoryID,
+                store: lore_store_t(handle_id: storeID),
+                onRelease: onRelease
             )
         } catch {
             try? await closeStore(storeID)
@@ -243,14 +236,39 @@ extension Repository {
         // The tree keeps the store's claim until the tree is closed,
         // so the binding closes its handle to the store at once.
         // If that fails, releasing the tree closes it.
-        let tree = trees.last.map {
-            RevisionTree(repository: self, repositoryID: repositoryID, handleID: $0, onRelease: onRelease)
-        }
         try await closeStore(storeID)
-        guard let tree else {
+        return tree
+    }
+
+    /// Loads the tree of a revision of this repository from an open store.
+    ///
+    /// - Parameter revisionID: The revision, or `nil` for an empty tree.
+    func loadRevisionTree(
+        revisionID: RevisionID?,
+        repositoryID: RepositoryID,
+        store: lore_store_t,
+        onRelease: (@Sendable (LoreError?) -> Void)?
+    ) async throws -> RevisionTree {
+        let trees = try await perform(
+            lore_revision_tree_load_async,
+            configure: { (arguments: UnsafeMutablePointer<lore_revision_tree_load_args_t>, _) in
+                arguments.pointee.store = store
+                arguments.pointee.repository = repositoryID.libraryValue
+                if let revisionID {
+                    arguments.pointee.revision_hash = revisionID.libraryValue
+                }
+            },
+            transform: { event -> UInt64? in
+                guard event.pointee.tag == LORE_EVENT_REVISION_TREE_LOADED.rawValue else {
+                    return nil
+                }
+                return event.pointee.revision_tree_loaded.handle_id
+            }
+        )
+        guard let handleID = trees.last else {
             throw LoreError.missingEvent("a revision tree")
         }
-        return tree
+        return RevisionTree(repository: self, repositoryID: repositoryID, handleID: handleID, onRelease: onRelease)
     }
 
     /// Closes a handle to the repository's store.

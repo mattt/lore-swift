@@ -141,6 +141,60 @@ func perform<Event: Sendable>(
     }
 }
 
+/// A reference that a call keeps until the library ends it.
+///
+/// The library reads some argument memory until it ends a call,
+/// such as the bytes that `lore_storage_put` stores.
+/// The callback context holds the box,
+/// and the library's worker threads never use its value,
+/// although its last release, and so the object's deinitializer,
+/// can run on a worker thread after the `END` event,
+/// when nothing else uses the object.
+private struct RetainedObject: @unchecked Sendable {
+    let object: AnyObject
+}
+
+/// Starts an asynchronous call to the C library
+/// and waits for it to end,
+/// returning the events that `transform` converts
+/// and the error if the call failed.
+///
+/// Unlike ``perform(_:start:)``,
+/// this function returns the events of a call that fails,
+/// so that a caller can read the outcome of each item of the call.
+///
+/// - Parameters:
+///   - transform: Converts each event that the call reports.
+///   - object: An object to keep alive until the library ends the call,
+///     such as the arena that holds memory the library reads during the call.
+///   - start: Calls a `lore_*_async` function with the given callback configuration.
+///     The function must call it exactly once, synchronously.
+func collect<Event: Sendable>(
+    _ transform: @escaping EventTransform<Event>,
+    keepingAlive object: AnyObject,
+    start: (lore_event_callback_config_t) -> Void
+) async -> (events: [Event], error: LoreError?) {
+    let events = Accumulator<Event>()
+    let retained = RetainedObject(object: object)
+    return await withCheckedContinuation { continuation in
+        let receiver = EventReceiver(
+            onEvent: { event in
+                if let value = transform(event) {
+                    events.append(value)
+                }
+            },
+            onEnd: { error in
+                // The receiver, and the box with it,
+                // is released after this closure returns.
+                withExtendedLifetime(retained) {
+                    continuation.resume(returning: (events.values, error))
+                }
+            }
+        )
+        start(receiver.retainedCallbackConfiguration())
+    }
+}
+
 /// Starts an asynchronous call to the C library without waiting for it.
 ///
 /// The callback context stays alive until the library ends the call,
