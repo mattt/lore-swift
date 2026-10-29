@@ -169,7 +169,7 @@ let conflictMarkers = "<<<<<<< ours\nmain\n||||||| original\nbase\n=======\nfeat
         let merge = try await repository.commit(message: "Merge feature")
         #expect(merge.parents == [main.id, feature.id])
         #expect(try repository.read("a.txt") == "main and feature\n")
-        #expect(try await repository.changes(from: "main@2", paths: ["a.txt"]).map(\.path) == ["a.txt"])
+        #expect(try await repository.changes(of: ["a.txt"], from: "main@2").map(\.path) == ["a.txt"])
     }
 
     @Test func unresolveAndRestart() async throws {

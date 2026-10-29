@@ -109,18 +109,18 @@ extension Repository {
     /// The changes include the directories that differ.
     ///
     /// - Parameters:
+    ///   - paths: The paths to compare, relative to the repository directory,
+    ///     or an empty array for every path.
     ///   - source: The revision to compare from.
     ///   - target: The revision to compare to,
     ///     or `nil` for the current revision.
-    ///   - paths: The paths to compare, relative to the repository directory,
-    ///     or an empty array for every path.
     /// - Returns: The changes that turn `source` into `target`.
     /// - Throws: ``LoreError`` if the library can't compare the revisions,
     ///   such as ``LoreError/Code/revisionNotFound``.
     public func changes(
+        of paths: [String] = [],
         from source: RevisionSpecifier,
-        to target: RevisionSpecifier? = nil,
-        paths: [String] = []
+        to target: RevisionSpecifier? = nil
     ) async throws -> [FileChange] {
         try await perform(
             lore_revision_diff_async,
