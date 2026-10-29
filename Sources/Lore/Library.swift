@@ -86,18 +86,21 @@ extension Library {
     /// when it's set above 0,
     /// takes precedence over the limit.
     ///
-    /// Call this method before the first operation of the process.
-    /// The library sets the limit once
-    /// and ignores later calls,
-    /// and it can't change the limit once it has started its threads.
+    /// Call this method once, before the first operation of the process.
+    /// The library records the limit at the first call
+    /// and ignores later calls.
+    /// It sizes its thread pools when the first operation starts,
+    /// so a limit recorded after that changes nothing.
+    /// In Lore 0.11.0, the first call records the limit,
+    /// and returns `true`, even after the first operation.
     /// There's no way to read the limit back.
     ///
     /// - Parameter limit: The maximum number of threads,
     ///   or `nil` for no limit,
     ///   which sizes each pool for the number of processors.
     ///   A limit below 1 counts as 1.
-    /// - Returns: `true` if the library applied the limit,
-    ///   or `false` if it was too late.
+    /// - Returns: `true` if the library recorded the limit,
+    ///   or `false` if an earlier call had recorded one.
     @discardableResult
     public static func setThreadLimit(_ limit: Int?) -> Bool {
         let count = limit.map { UInt(clamping: max($0, 1)) } ?? 0
@@ -132,7 +135,9 @@ extension Library {
     ///
     /// The level is a Zstandard level from 1 to 22,
     /// which trades time for size.
-    /// The library clamps other levels into the range that each codec accepts.
+    /// A level of -1 selects each codec's default, as `nil` does.
+    /// The library clamps other levels into the range that each codec accepts,
+    /// so 0 selects the lowest level.
     /// The environment variable `LORE_COMPRESSION_LEVEL`
     /// takes precedence over the level
     /// when it names a level that the codec accepts.

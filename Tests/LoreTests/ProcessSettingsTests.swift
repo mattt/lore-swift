@@ -13,7 +13,7 @@ import Testing
 /// which run in the parent process at the same time.
 /// The suite is serialized so that its child processes run one at a time.
 @Suite(.serialized) struct ProcessSettingsTests {
-    @Test func threadLimitAppliesOnlyBeforeTheFirstOperation() async {
+    @Test func threadLimitCanBeSetOnce() async {
         await #expect(processExitsWith: .success) {
             _ = isolatedHome
             #expect(Library.setThreadLimit(8))
@@ -21,6 +21,18 @@ import Testing
             #expect(!Library.setThreadLimit(nil))
             let repository = try await makeOfflineRepository()
             #expect(try await repository.status().branch == "main")
+        }
+    }
+
+    @Test func threadLimitIsRecordedAfterTheFirstOperation() async {
+        await #expect(processExitsWith: .success) {
+            _ = isolatedHome
+            let repository = try await makeOfflineRepository()
+            #expect(try await repository.status().branch == "main")
+            // Lore 0.11.0 records a limit after its threads have started,
+            // despite the header, although the limit can no longer change them.
+            #expect(Library.setThreadLimit(8))
+            #expect(!Library.setThreadLimit(8))
         }
     }
 
