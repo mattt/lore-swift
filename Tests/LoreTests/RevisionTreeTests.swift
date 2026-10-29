@@ -380,6 +380,8 @@ import Testing
             // The library takes only an earlier node as a parent.
             [file("q.txt", in: .entry(1)), .directory(named: "p", in: .node(.root))],
             [.file(named: "q.txt", in: .node(.root), address: address, size: -1)],
+            // The library reads this identifier as "the parent is an earlier node".
+            [.directory(named: "p", in: .node(.root)), file("q.txt", in: .node(.init(rawValue: 0xFFFF_FFFF)))],
         ]
         for nodes in rejected {
             let error = await #expect(throws: LoreError.self) { try await tree.add(nodes) }

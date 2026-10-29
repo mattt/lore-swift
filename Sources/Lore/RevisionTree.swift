@@ -769,12 +769,19 @@ extension RevisionTree {
     ///   for a name that the directory already has
     ///   or a parent that isn't an earlier node in `nodes`,
     ///   or with ``LoreError/Code/invalidArguments``
-    ///   for a parent index outside `nodes` or a negative size.
+    ///   for a parent index outside `nodes`, a negative size,
+    ///   or a parent identifier of `0xFFFF_FFFF`, which no node has.
     @discardableResult
     public func add(_ nodes: [NewNode]) async throws -> [NodeID] {
         for node in nodes {
-            if case .entry(let index) = node.parent, !nodes.indices.contains(index) {
+            switch node.parent {
+            case .entry(let index) where !nodes.indices.contains(index):
                 throw LoreError(code: .invalidArguments, message: "No new node has the index \(index).")
+            case .node(let id) where id.rawValue == RevisionTree.invalidNode:
+                // The library reads this identifier as a reference to `parent_entry_index`.
+                throw LoreError(code: .invalidArguments, message: "No node has the identifier \(id.rawValue).")
+            default:
+                break
             }
             try RevisionTree.checkSize(node.size)
         }
