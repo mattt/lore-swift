@@ -11,7 +11,7 @@ Epic Games' version control system.
 
 - Swift 6.2+ / Xcode 26+
 - macOS 15+ on Apple silicon
-- Lore 0.11.0
+- Lore 0.12.0
 
 ## Installation
 

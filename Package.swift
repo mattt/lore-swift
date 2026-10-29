@@ -14,8 +14,8 @@ let package = Package(
         .binaryTarget(
             name: "liblore",
             url:
-                "https://github.com/mattt/lore-swift/releases/download/liblore-0.11.0/liblore.xcframework.zip",
-            checksum: "6b5ac230083fb204cefb56af05f2cf1fefe05e5327a40c422a673acc94aea3e8"
+                "https://github.com/mattt/lore-swift/releases/download/liblore-0.12.0/liblore.xcframework.zip",
+            checksum: "1e2d9536e6e78c1634258162ab8764e41a8cca7aed72601056c7ae5f2e725fb6"
         ),
         .target(
             name: "CLore",
