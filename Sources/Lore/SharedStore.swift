@@ -1,10 +1,12 @@
 import CLore
 import Foundation
 
-/// A store that several checkouts of the repositories on one server share,
+/// A store that several checkouts of the repositories on one server,
+/// or of offline repositories, share,
 /// so that content that they have in common is stored once on this computer.
 ///
-/// A shared store belongs to one server.
+/// A shared store belongs to one server,
+/// or, with a ``remote`` of `nil`, to offline repositories.
 /// It's a directory named `shared_store`
 /// inside a directory for the server
 /// that the library names after the server's URL
@@ -12,9 +14,12 @@ import Foundation
 /// with `_` for each `:` and `/`,
 /// such as `stores/127.0.0.1_41337/shared_store`
 /// for a store that ``create(for:in:makingDefault:options:)`` creates in `stores`.
+/// The store of offline repositories is directly in the directory,
+/// such as `stores/shared_store`.
 /// The library records every shared store that it creates
 /// in a registry in the user's Lore data directory,
-/// and the store that it uses by default for each server
+/// and the store that it uses by default for each server,
+/// and for offline repositories,
 /// in the user's global Lore configuration,
 /// `config.toml` in ``Library/userDirectory``.
 /// When `LORE_GLOBAL_PATH` is set in the environment,
