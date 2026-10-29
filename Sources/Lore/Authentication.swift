@@ -141,9 +141,13 @@ extension Authentication {
 
     /// The progress of an interactive login.
     public enum LoginProgress: Sendable, Hashable {
-        /// The login waits for the user to open a URL and approve the login,
-        /// entering or confirming the code if there is one.
-        case openURL(String, userCode: String?)
+        /// The login waits for the user to open a URL and approve the login.
+        ///
+        /// - Parameters:
+        ///   - url: The URL for the user to open.
+        ///   - userCode: The code for the user to enter or confirm at `url`,
+        ///     or `nil` if the login doesn't ask for one.
+        case approvalRequested(url: String, userCode: String?)
 
         /// The user hasn't approved the login yet,
         /// and the library is about to wait before it asks the service again.
@@ -248,7 +252,7 @@ extension Authentication {
     /// ```swift
     /// for try await update in Authentication.logInInteractively(remote: url) {
     ///     switch update {
-    ///     case .progress(.openURL(let url, let userCode)):
+    ///     case .progress(.approvalRequested(let url, let userCode)):
     ///         print("Open", url, "and enter", userCode ?? "nothing")
     ///     case .progress(.pending):
     ///         break
@@ -632,7 +636,7 @@ private enum AuthenticationEvent: Sendable {
         case LORE_EVENT_AUTH_URL.rawValue:
             let data = event.pointee.auth_url
             let userCode = String(data.user_code)
-            self = .progress(.openURL(String(data.url), userCode: userCode.isEmpty ? nil : userCode))
+            self = .progress(.approvalRequested(url: String(data.url), userCode: userCode.isEmpty ? nil : userCode))
         case LORE_EVENT_AUTH_PENDING.rawValue:
             let data = event.pointee.auth_pending
             self = .progress(

@@ -390,7 +390,7 @@ import Testing
                 approvingWith: try token(for: "dana", name: "Dana")
             )
             #expect(user == Authentication.User(id: "dana", name: "Dana"))
-            guard case .openURL(let url, let userCode)? = progress.first else {
+            guard case .approvalRequested(let url, let userCode)? = progress.first else {
                 Issue.record("The login reported no URL")
                 return
             }
@@ -428,7 +428,7 @@ import Testing
                 approvingWith: try token(for: "dana", name: "Dana")
             )
             #expect(user == Authentication.User(id: "dana", name: "Dana"))
-            guard case .openURL(let url, _)? = progress.first else {
+            guard case .approvalRequested(let url, _)? = progress.first else {
                 Issue.record("The login reported no URL")
                 return
             }
@@ -527,7 +527,7 @@ import Testing
                 case .progress(let update):
                     progress.append(update)
                     switch update {
-                    case .openURL(_, let code):
+                    case .approvalRequested(_, let code):
                         userCode = code
                     case .pending:
                         if let code = userCode {
