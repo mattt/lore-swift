@@ -504,16 +504,16 @@ extension Repository {
         try await localUsers(withIDs: ids, authenticationURL: nil, includingTokens: includingTokens)
     }
 
-    /// Returns the current user's authorization token for the repository,
-    /// which operations on the repository present to the server.
+    /// Returns the current user's credential for the repository,
+    /// with the authorization token that operations on the repository present to the server.
     ///
-    /// The library uses a stored token that hasn't expired.
+    /// The library uses a stored authorization token that hasn't expired.
     /// Otherwise it gets one from the authentication service
     /// and stores it.
     ///
-    /// - Returns: The credential, with its token.
-    /// - Throws: ``LoreError`` if the library can't get a token.
-    public func accessCredential() async throws -> Authentication.Credential {
+    /// - Returns: The credential, with its authorization token.
+    /// - Throws: ``LoreError`` if the library can't get an authorization token.
+    public func authorizationCredential() async throws -> Authentication.Credential {
         let events = try await perform(
             lore_auth_local_user_info_async,
             configure: { (arguments: UnsafeMutablePointer<lore_auth_local_user_info_args_t>, _) in
