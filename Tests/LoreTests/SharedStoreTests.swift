@@ -47,6 +47,46 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: "\(store.path)/shared_store.toml"))
     }
 
+    @Test(arguments: [
+        // The library records the URL without one trailing slash,
+        // and names the directory without any.
+        ("lore://slash.invalid:43000/", "lore://slash.invalid:43000", "slash.invalid_43000"),
+        ("lore://slashes.invalid:43000//", "lore://slashes.invalid:43000/", "slashes.invalid_43000"),
+        // It replaces each `/` of a path with `_`.
+        ("lore://path.invalid:43000/a/b", "lore://path.invalid:43000/a/b", "path.invalid_43000_a_b"),
+    ])
+    func createRecordsTheServerURL(url: String, recorded: String, directoryName: String) async throws {
+        let directory = temporaryPath("shared-stores")
+        let store = try await SharedStore.create(for: url, in: directory, options: offline)
+        #expect(store.remoteURL == recorded)
+        #expect(store.path == "\(directory)/\(directoryName)/shared_store")
+        #expect(try await SharedStore.all().filter { $0.path.hasPrefix(directory) } == [store])
+    }
+
+    @Test func pathsOfTheSameStoreCompareEqual() async {
+        await #expect(processExitsWith: .success) {
+            _ = isolateGlobalDirectory()
+            let offline = Repository.Options(identity: "test@example.com", isOffline: true)
+            // A directory under `/private/tmp` that doesn't exist yet,
+            // where the file system's standardization of the path
+            // changes once the directory exists.
+            let base = "/private/tmp/lore-swift-tests-\(UUID().uuidString)"
+            defer { try? FileManager.default.removeItem(atPath: base) }
+            let store = try await SharedStore.create(
+                for: "lore://shared-store.invalid:43000",
+                in: "\(base)/stores",
+                makingDefault: true,
+                options: offline
+            )
+            #expect(store.path == "\(base)/stores/shared-store.invalid_43000/shared_store")
+            #expect(try await SharedStore.all().filter { $0.remoteURL == store.remoteURL } == [store])
+            #expect(try await SharedStore.configuration().defaultStores.map(\.path) == [store.path])
+
+            let other = try await SharedStore.create(for: "lore://other.invalid:43000", options: offline)
+            #expect(try await SharedStore.all().filter { $0.remoteURL == other.remoteURL } == [other])
+        }
+    }
+
     @Test func createConnectsToTheServerUnlessOffline() async throws {
         let directory = temporaryPath("shared-stores")
         // Nothing listens on the discard port.
@@ -129,9 +169,10 @@ import Testing
             // A store in the default directory isn't a default unless you make it one.
             let other = try await SharedStore.create(for: "lore://other.invalid:43000", options: offline)
             #expect(other.path == "\(defaultDirectory)/other.invalid_43000/shared_store")
+            #expect(try await SharedStore.all().contains(other))
             let defaults = [
                 SharedStore.Configuration.DefaultStore(
-                    server: "shared-store.invalid:43000",
+                    serverAddress: "shared-store.invalid:43000",
                     path: store.path,
                     exists: true
                 )
@@ -154,7 +195,7 @@ import Testing
                     == Set(
                         defaults + [
                             SharedStore.Configuration.DefaultStore(
-                                server: "",
+                                serverAddress: "",
                                 path: "\(defaultDirectory)/shared_store",
                                 exists: true
                             )

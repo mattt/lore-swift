@@ -7,7 +7,8 @@ import Foundation
 /// A shared store belongs to one server.
 /// It's a directory named `shared_store`
 /// inside a directory for the server
-/// that the library names after the server's URL without its scheme,
+/// that the library names after the server's URL
+/// without its scheme and trailing slashes,
 /// with `_` for each `:` and `/`,
 /// such as `stores/127.0.0.1_41337/shared_store`
 /// for a store that ``create(for:in:makingDefault:options:)`` creates in `stores`.
@@ -36,6 +37,9 @@ public struct SharedStore: Sendable, Hashable {
     /// The URL of the server that the store belongs to,
     /// such as `lore://127.0.0.1:41337`,
     /// or an empty string for the store of offline repositories.
+    ///
+    /// The library records the URL that the store was created for
+    /// without one trailing slash.
     public var remoteURL: String
 
     /// The path of the store's `shared_store` directory.
@@ -55,10 +59,14 @@ extension SharedStore {
     public struct Configuration: Sendable, Hashable {
         /// The shared store that the library uses by default for a server.
         public struct DefaultStore: Sendable, Hashable {
-            /// The URL of the server without its scheme,
+            /// The address of the server as the configuration records it:
+            /// the server's URL without its scheme and trailing slashes,
             /// such as `127.0.0.1:41337`,
-            /// as the configuration records it.
-            public var server: String
+            /// or an empty string for the default store of offline repositories.
+            ///
+            /// This isn't a URL that other methods accept.
+            /// It's the ``SharedStore/remoteURL`` of the store without the scheme.
+            public var serverAddress: String
 
             /// The path of the store's `shared_store` directory.
             public var path: String
@@ -72,7 +80,9 @@ extension SharedStore {
         /// unless their ``Repository/StoreLocation`` says otherwise.
         public var isUsedAutomatically: Bool
 
-        /// The default stores, one for each server that has one.
+        /// The default stores:
+        /// one for each server that has one,
+        /// and one for offline repositories if they have one.
         public var defaultStores: [DefaultStore]
     }
 }
@@ -130,12 +140,12 @@ extension SharedStore {
         guard let path = paths.last else {
             throw LoreError.missingEvent("the shared store")
         }
-        // The library records the URL without a trailing slash.
+        // The library records the URL without one trailing slash.
         var url = Substring(remoteURL)
         if url.hasSuffix("/") {
             url = url.dropLast()
         }
-        return SharedStore(remoteURL: String(url), path: path, instances: [])
+        return SharedStore(remoteURL: String(url), path: normalizedPath(path), instances: [])
     }
 
     /// Returns the shared stores in the library's registry.
@@ -227,9 +237,7 @@ extension SharedStore {
         // The registry records the directory that holds the store.
         self.init(
             remoteURL: String(item.remote_url),
-            path: URL(fileURLWithPath: String(item.store_path), isDirectory: true)
-                .appending(path: "shared_store", directoryHint: .isDirectory)
-                .standardizedFileURL.path,
+            path: normalizedPath(String(item.store_path) + "/shared_store"),
             instances: zip(ids, paths).map { Instance(id: $0, path: $1) }
         )
     }
@@ -246,8 +254,8 @@ extension SharedStore.Configuration {
         for index in remoteURLs.indices where index < paths.count {
             defaultStores.append(
                 DefaultStore(
-                    server: remoteURLs[index],
-                    path: paths[index],
+                    serverAddress: remoteURLs[index],
+                    path: normalizedPath(paths[index]),
                     exists: index < exists.count && exists[index] != 0
                 )
             )
@@ -283,7 +291,8 @@ extension Repository {
         ///   is directly in the directory.
         ///   When the library creates a server's default store for `nil`,
         ///   it records the store as the server's default
-        ///   in the user's global Lore configuration.
+        ///   in the user's global Lore configuration,
+        ///   and the same for the default store of offline repositories.
         case shared(in: String? = nil)
     }
 }
@@ -307,4 +316,32 @@ extension Repository.StoreLocation {
             path = arena.string(directory.map(Repository.absolutePath(of:)))
         }
     }
+}
+
+/// Normalizes a path that the library reports for a shared store,
+/// so that the paths of the same store compare equal.
+///
+/// The library reports the paths in different forms,
+/// such as with a trailing slash.
+/// The normalization removes empty and `.` components,
+/// and a `..` component with the component before it,
+/// without consulting the file system.
+fileprivate func normalizedPath(_ path: String) -> String {
+    var components: [Substring] = []
+    for component in path.split(separator: "/", omittingEmptySubsequences: true) {
+        switch component {
+        case ".":
+            continue
+        case "..":
+            if !components.isEmpty, components.last != ".." {
+                components.removeLast()
+            } else if !path.hasPrefix("/") {
+                components.append(component)
+            }
+        default:
+            components.append(component)
+        }
+    }
+    let joined = components.joined(separator: "/")
+    return path.hasPrefix("/") ? "/" + joined : joined
 }
