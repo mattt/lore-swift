@@ -171,7 +171,7 @@ import Testing
         // a.txt gets the content of dir/b.txt and keeps its identity.
         try await tree.modify([
             .init(
-                node: a.id,
+                nodeID: a.id,
                 address: try #require(ContentAddress(hash: nested.hash, context: zeroContext)),
                 size: b.size,
                 mode: 0o644
@@ -183,11 +183,11 @@ import Testing
         #expect(modified.size == b.size)
         #expect(modified.mode == 0o644)
         let directory = await #expect(throws: LoreError.self) {
-            try await tree.modify([.init(node: dir, address: nested, size: 1)])
+            try await tree.modify([.init(nodeID: dir, address: nested, size: 1)])
         }
         #expect(directory?.code == .invalidArguments)
         let negative = await #expect(throws: LoreError.self) {
-            try await tree.modify([.init(node: a.id, address: nested, size: -1)])
+            try await tree.modify([.init(nodeID: a.id, address: nested, size: -1)])
         }
         #expect(negative?.code == .invalidArguments)
         #expect(try await tree.node(a.id) == modified)
@@ -196,7 +196,7 @@ import Testing
         let identity = [UInt8](repeating: 7, count: 16)
         try await tree.modify([
             .init(
-                node: added[1],
+                nodeID: added[1],
                 address: try #require(ContentAddress(hash: hello.hash, context: identity)),
                 size: a.size
             )
@@ -204,7 +204,7 @@ import Testing
         #expect(try await tree.node(added[1]).address?.context == identity)
 
         // dir/b.txt moves to the root as e.txt, then dir goes.
-        try await tree.move([.init(node: b.id, to: .root, name: "e.txt")])
+        try await tree.move([.init(nodeID: b.id, to: .root, name: "e.txt")])
         let moved = try await tree.node(b.id)
         #expect(moved.stagedAction == .move)
         #expect(moved.parentID == .root)
@@ -420,14 +420,14 @@ import Testing
 
         let collision = await #expect(throws: LoreError.self) {
             try await tree.move([
-                .init(node: a, to: .root, name: "same.txt"), .init(node: b, to: .root, name: "same.txt"),
+                .init(nodeID: a, to: .root, name: "same.txt"), .init(nodeID: b, to: .root, name: "same.txt"),
             ])
         }
         #expect(collision?.code == .invalidArguments)
         #expect(try await tree.path(of: a) == "a.txt")
 
         // The second move takes the name that the first frees.
-        try await tree.move([.init(node: a, to: .root, name: "c.txt"), .init(node: b, to: .root, name: "a.txt")])
+        try await tree.move([.init(nodeID: a, to: .root, name: "c.txt"), .init(nodeID: b, to: .root, name: "a.txt")])
         #expect(try await tree.path(of: a) == "c.txt")
         #expect(try await tree.path(of: b) == "a.txt")
         #expect(try await tree.node(a).stagedAction == .move)
@@ -582,7 +582,7 @@ import Testing
         let stale = try await repository.loadRevisionTree()
         let current = try await repository.loadRevisionTree()
         let a = try await stale.resolve("a.txt").nodeID
-        try await stale.move([.init(node: a, to: .root, name: "renamed.txt")])
+        try await stale.move([.init(nodeID: a, to: .root, name: "renamed.txt")])
         try await current.delete([current.resolve("a.txt").nodeID])
         let second = try await current.commit(message: "Delete a.txt")
         #expect(second.parents == [first.id])
@@ -663,8 +663,8 @@ import Testing
             { _ = try await tree.path(of: .root) },
             { try await tree.add([.directory(named: "x", in: .node(.root))]) },
             { try await tree.delete([node]) },
-            { try await tree.modify([.init(node: node, address: address, size: 6)]) },
-            { try await tree.move([.init(node: node, to: .root, name: "y")]) },
+            { try await tree.modify([.init(nodeID: node, address: address, size: 6)]) },
+            { try await tree.move([.init(nodeID: node, to: .root, name: "y")]) },
             { _ = try await tree.metadata(forKeys: ["message"]) },
             { try await tree.setMetadata(["message": .string("x")]) },
             { try await tree.clearMetadata(keys: ["message"]) },
@@ -786,7 +786,7 @@ import Testing
         try await repository.push()
 
         let tree = try await repository.loadRevisionTree()
-        try await tree.move([.init(node: tree.resolve("a.txt").nodeID, to: .root, name: "b.txt")])
+        try await tree.move([.init(nodeID: tree.resolve("a.txt").nodeID, to: .root, name: "b.txt")])
         let revision = try await tree.commit(message: "Rename a.txt")
         try await tree.close()
         #expect(revision.parents == [first.id])

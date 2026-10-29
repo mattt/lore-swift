@@ -701,7 +701,7 @@ extension RevisionTree {
     /// New content for a file in a tree.
     public struct Modification: Sendable, Hashable {
         /// The file.
-        public var node: NodeID
+        public var nodeID: NodeID
 
         /// The address of the file's new content in the store.
         ///
@@ -719,12 +719,12 @@ extension RevisionTree {
         /// Creates new content for a file.
         ///
         /// - Parameters:
-        ///   - node: The file.
+        ///   - nodeID: The file.
         ///   - address: The address of the new content in the store.
         ///   - size: The size of the new content, in bytes.
         ///   - mode: The file mode.
-        public init(node: NodeID, address: ContentAddress, size: Int, mode: UInt16 = 0) {
-            self.node = node
+        public init(nodeID: NodeID, address: ContentAddress, size: Int, mode: UInt16 = 0) {
+            self.nodeID = nodeID
             self.address = address
             self.size = size
             self.mode = mode
@@ -734,12 +734,12 @@ extension RevisionTree {
     /// A move of a node in a tree.
     public struct Move: Sendable, Hashable {
         /// The node to move.
-        public var node: NodeID
+        public var nodeID: NodeID
 
         /// The directory to move the node to.
         ///
         /// The node's current directory renames it.
-        public var destination: NodeID
+        public var destinationID: NodeID
 
         /// The name of the node in the destination.
         public var name: String
@@ -747,12 +747,12 @@ extension RevisionTree {
         /// Creates a move of a node.
         ///
         /// - Parameters:
-        ///   - node: The node to move.
-        ///   - destination: The directory to move the node to.
+        ///   - nodeID: The node to move.
+        ///   - destinationID: The directory to move the node to.
         ///   - name: The name of the node in the destination.
-        public init(node: NodeID, to destination: NodeID, name: String) {
-            self.node = node
-            self.destination = destination
+        public init(nodeID: NodeID, to destinationID: NodeID, name: String) {
+            self.nodeID = nodeID
+            self.destinationID = destinationID
             self.name = name
         }
     }
@@ -885,7 +885,7 @@ extension RevisionTree {
                 let entries = arena.allocate(lore_revision_tree_modify_entry_t.self, count: modifications.count)
                 for (index, modification) in modifications.enumerated() {
                     entries[index].entry_id = UInt64(index + 1)
-                    entries[index].node_id = modification.node.rawValue
+                    entries[index].node_id = modification.nodeID.rawValue
                     entries[index].mode = modification.mode
                     entries[index].size = UInt64(modification.size)
                     entries[index].address = modification.address.libraryValue
@@ -920,8 +920,8 @@ extension RevisionTree {
                 let entries = arena.allocate(lore_revision_tree_move_entry_t.self, count: moves.count)
                 for (index, move) in moves.enumerated() {
                     entries[index].entry_id = UInt64(index + 1)
-                    entries[index].node_id = move.node.rawValue
-                    entries[index].destination_parent_id = move.destination.rawValue
+                    entries[index].node_id = move.nodeID.rawValue
+                    entries[index].destination_parent_id = move.destinationID.rawValue
                     entries[index].dst_name = arena.string(move.name)
                 }
                 arguments.pointee.entries = lore_revision_tree_move_entry_array_t(
