@@ -146,7 +146,10 @@ func perform<Event: Sendable>(
 /// The library reads some argument memory until it ends a call,
 /// such as the bytes that `lore_storage_put` stores.
 /// The callback context holds the box,
-/// and the library's worker threads never use its value.
+/// and the library's worker threads never use its value,
+/// although its last release, and so the object's deinitializer,
+/// can run on a worker thread after the `END` event,
+/// when nothing else uses the object.
 private struct RetainedObject: @unchecked Sendable {
     let object: AnyObject
 }

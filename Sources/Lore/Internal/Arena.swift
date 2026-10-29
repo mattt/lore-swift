@@ -3,8 +3,13 @@ import Foundation
 
 /// Memory for the arguments of one call to the C library.
 ///
-/// The library copies its arguments before a call returns,
-/// so the arena needs to live only for the duration of the call.
+/// The library copies most argument data before a call returns,
+/// so an arena usually needs to live only for the duration of the call.
+/// The bytes from ``bytes(_:)`` are an exception:
+/// the library reads the `data` of `lore_storage_put` and `lore_storage_put_resolved` items
+/// until the call completes,
+/// so keep such an arena alive with `collect(_:keepingAlive:start:)`,
+/// not with `Repository.perform`.
 /// Every allocation is zero-filled,
 /// padding included,
 /// as the header requires of each structure passed to the library.
@@ -71,6 +76,8 @@ final class Arena {
     /// Copies bytes into a library byte slice.
     ///
     /// Empty data becomes a null pointer with length 0.
+    /// The library can read the slice until the call ends,
+    /// so pass the arena to `collect(_:keepingAlive:start:)`.
     func bytes(_ data: Data) -> lore_bytes_t {
         guard !data.isEmpty else {
             return lore_bytes_t(ptr: nil, len: 0)
