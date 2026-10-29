@@ -65,7 +65,6 @@ extension SharedStore {
             /// or an empty string for the default store of offline repositories.
             ///
             /// This isn't a URL that other methods accept.
-            /// It's the ``SharedStore/remoteURL`` of the store without the scheme.
             public var serverAddress: String
 
             /// The path of the store's `shared_store` directory.
