@@ -71,7 +71,135 @@ public struct FileDiff: Sendable, Hashable {
     public var patch: String
 }
 
+/// A range of lines in a file and the revision that last changed them.
+public struct LineAttribution: Sendable, Hashable {
+    /// What a range of lines resolved to, or why it didn't resolve.
+    ///
+    /// Corresponds to `lore_file_audit_outcome_t`.
+    public struct Outcome: RawRepresentable, Sendable, Hashable {
+        /// The raw value of the outcome.
+        public var rawValue: UInt32
+
+        /// Creates an outcome from its raw value.
+        public init(rawValue: UInt32) {
+            self.rawValue = rawValue
+        }
+
+        /// The lines resolved to the revision that last changed them.
+        public static let attributed = Self(rawValue: LORE_FILE_AUDIT_OUTCOME_ATTRIBUTED.rawValue)
+        /// The lines differ in the working directory from the revision that the audit read,
+        /// so no revision has them.
+        public static let uncommitted = Self(rawValue: LORE_FILE_AUDIT_OUTCOME_UNCOMMITTED.rawValue)
+        /// The audit read as many revisions as its limit allows
+        /// before the lines resolved.
+        public static let revisionLimitReached = Self(rawValue: LORE_FILE_AUDIT_OUTCOME_BUDGET_EXHAUSTED.rawValue)
+        /// A version of the file that the audit had to compare
+        /// has no content, because it was obliterated.
+        public static let obliterated = Self(rawValue: LORE_FILE_AUDIT_OUTCOME_OBLITERATED.rawValue)
+        /// A version of the file that the audit had to compare
+        /// has binary content, which can't be compared line by line.
+        public static let binaryInHistory = Self(rawValue: LORE_FILE_AUDIT_OUTCOME_BINARY_IN_HISTORY.rawValue)
+        /// The history continues in a linked repository
+        /// that the audit can't reach or isn't authorized to read.
+        public static let linkUnavailable = Self(rawValue: LORE_FILE_AUDIT_OUTCOME_LINK_UNAVAILABLE.rawValue)
+        /// A version of the file that the audit had to compare
+        /// isn't in the local store,
+        /// and the audit reads only the local store.
+        public static let contentUnavailable = Self(rawValue: LORE_FILE_AUDIT_OUTCOME_CONTENT_UNAVAILABLE.rawValue)
+        /// An error ended the audit before it reached the lines.
+        public static let unresolved = Self(rawValue: LORE_FILE_AUDIT_OUTCOME_UNRESOLVED.rawValue)
+    }
+
+    /// The lines, numbered from 1.
+    public var lines: ClosedRange<Int>
+
+    /// The revision that last changed the lines,
+    /// or `nil` unless ``outcome`` is ``Outcome/attributed``.
+    public var revision: RevisionID?
+
+    /// The repository of ``revision``:
+    /// this repository,
+    /// or a linked repository if the file's history continues in one.
+    public var repositoryID: RepositoryID?
+
+    /// What the lines resolved to, or why they didn't resolve.
+    public var outcome: Outcome
+}
+
 extension Repository {
+    /// Attributes each line of a file to the revision that last changed it.
+    ///
+    /// The result names each revision by its identifier;
+    /// read the commit message and other metadata of a revision
+    /// with ``revision(_:)``.
+    ///
+    /// - Parameters:
+    ///   - path: The path of the file, relative to the repository directory.
+    ///   - revision: The revision to read the file at,
+    ///     or `nil` for the file in the working directory,
+    ///     whose changed lines are ``LineAttribution/Outcome/uncommitted``.
+    ///   - revisionLimit: The number of versions of the file to read,
+    ///     or `nil` to read the whole history of the file.
+    ///     Lines that the limit leaves unresolved are
+    ///     ``LineAttribution/Outcome/revisionLimitReached``.
+    ///   - ignoringTrailingWhitespace: Whether lines that differ only
+    ///     in trailing whitespace are equal.
+    ///   - ignoringWhitespaceChanges: Whether runs of whitespace within a line
+    ///     compare equal to a single space,
+    ///     so that a reindented line keeps the revision that wrote its text.
+    /// - Returns: Ranges that together cover every line of the file,
+    ///   in order of their lines.
+    ///   An empty file has none.
+    /// - Throws: ``LoreError`` if the library can't audit the file,
+    ///   such as ``LoreError/Code/fileNotFound``
+    ///   for a file that the revision doesn't have,
+    ///   ``LoreError/Code/addressNotFound``
+    ///   for a version of the file that ``obliterate(_:)`` removed,
+    ///   or ``LoreError/Code/invalidArguments``
+    ///   if `revisionLimit` is less than 1.
+    public func audit(
+        _ path: String,
+        revision: RevisionSpecifier? = nil,
+        revisionLimit: Int? = 100,
+        ignoringTrailingWhitespace: Bool = true,
+        ignoringWhitespaceChanges: Bool = false
+    ) async throws -> [LineAttribution] {
+        // The library reads a limit of 0 as its default of 100,
+        // and `UInt32.max` as no limit.
+        if let revisionLimit, revisionLimit < 1 {
+            throw LoreError(
+                code: .invalidArguments,
+                message: "The revision limit must be at least 1, not \(revisionLimit)."
+            )
+        }
+        let attributions = try await perform(
+            lore_file_audit_async,
+            configure: { (arguments: UnsafeMutablePointer<lore_file_audit_args_t>, arena) in
+                arguments.pointee.path = arena.string(path)
+                arguments.pointee.revision = arena.string(revision?.rawValue)
+                arguments.pointee.max_revisions =
+                    revisionLimit.map { UInt32(clamping: $0) } ?? UInt32.max
+                arguments.pointee.no_ignore_space_at_eol = UInt8(!ignoringTrailingWhitespace)
+                arguments.pointee.ignore_space_change = UInt8(ignoringWhitespaceChanges)
+            },
+            transform: { event -> LineAttribution? in
+                guard event.pointee.tag == LORE_EVENT_FILE_AUDIT.rawValue else {
+                    return nil
+                }
+                let data = event.pointee.file_audit
+                let first = Int(data.line_first)
+                return LineAttribution(
+                    lines: first ... max(first, Int(data.line_last)),
+                    revision: RevisionID(data.revision),
+                    repositoryID: RepositoryID(data.repository),
+                    outcome: LineAttribution.Outcome(rawValue: data.outcome.rawValue)
+                )
+            }
+        )
+        // The library reports the most recently changed lines first.
+        return attributions.sorted { $0.lines.lowerBound < $1.lines.lowerBound }
+    }
+
     /// Lists the revisions that changed a file, newest first.
     ///
     /// - Parameters:

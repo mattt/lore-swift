@@ -289,3 +289,114 @@ import Testing
         #expect(error?.code == .nodeNotFound)
     }
 }
+
+@Suite struct AuditTests {
+    /// Returns an offline repository with two revisions of `a.txt`:
+    /// the first adds three lines, and the second changes the second line and adds a fourth.
+    private func repository() async throws -> (Repository, [Revision]) {
+        let repository = try await makeOfflineRepository()
+        var revisions: [Revision] = []
+        for text in ["one\ntwo\nthree\n", "one\nTWO\nthree\nfour\n"] {
+            try repository.write(text, to: "a.txt")
+            try await repository.stage(["a.txt"])
+            revisions.append(try await repository.commit(message: "Revision \(revisions.count + 1)"))
+        }
+        return (repository, revisions)
+    }
+
+    @Test func auditAttributesLinesToRevisions() async throws {
+        let (repository, revisions) = try await repository()
+        let repositoryID = try await repository.state().repositoryID
+        let attributions = try await repository.audit("a.txt")
+        #expect(
+            attributions == [
+                LineAttribution(
+                    lines: 1 ... 1,
+                    revision: revisions[0].id,
+                    repositoryID: repositoryID,
+                    outcome: .attributed
+                ),
+                LineAttribution(
+                    lines: 2 ... 2,
+                    revision: revisions[1].id,
+                    repositoryID: repositoryID,
+                    outcome: .attributed
+                ),
+                LineAttribution(
+                    lines: 3 ... 3,
+                    revision: revisions[0].id,
+                    repositoryID: repositoryID,
+                    outcome: .attributed
+                ),
+                LineAttribution(
+                    lines: 4 ... 4,
+                    revision: revisions[1].id,
+                    repositoryID: repositoryID,
+                    outcome: .attributed
+                ),
+            ]
+        )
+        // Consecutive lines with the same revision form one range.
+        #expect(
+            try await repository.audit("a.txt", revision: "main@1") == [
+                LineAttribution(
+                    lines: 1 ... 3,
+                    revision: revisions[0].id,
+                    repositoryID: repositoryID,
+                    outcome: .attributed
+                )
+            ]
+        )
+    }
+
+    @Test func auditReportsUncommittedLines() async throws {
+        let (repository, revisions) = try await repository()
+        try repository.write("one\nTWO\nthree \nfour\nfive\n", to: "a.txt")
+
+        let attributions = try await repository.audit("a.txt")
+        #expect(attributions.map(\.lines) == [1 ... 1, 2 ... 2, 3 ... 3, 4 ... 4, 5 ... 5])
+        #expect(attributions.map(\.outcome) == [.attributed, .attributed, .attributed, .attributed, .uncommitted])
+        #expect(attributions[2].revision == revisions[0].id)
+        #expect(attributions[4].revision == nil)
+
+        let strict = try await repository.audit("a.txt", ignoringTrailingWhitespace: false)
+        #expect(strict.map(\.outcome) == [.attributed, .attributed, .uncommitted, .attributed, .uncommitted])
+    }
+
+    @Test func auditHonorsTheRevisionLimit() async throws {
+        let (repository, _) = try await repository()
+        for text in ["ONE\nTWO\nthree\nfour\n", "ONE\nTWO\nTHREE\nfour\n"] {
+            try repository.write(text, to: "a.txt")
+            try await repository.stage(["a.txt"])
+            try await repository.commit(message: "Another revision")
+        }
+        let limited = try await repository.audit("a.txt", revisionLimit: 1)
+        #expect(limited.flatMap(\.lines) == [1, 2, 3, 4])
+        let unresolved = limited.filter { $0.outcome == .revisionLimitReached }
+        #expect(!unresolved.isEmpty)
+        #expect(unresolved.allSatisfy { $0.revision == nil })
+
+        let whole = try await repository.audit("a.txt", revisionLimit: nil)
+        #expect(whole.flatMap(\.lines) == [1, 2, 3, 4])
+        #expect(whole.allSatisfy { $0.outcome == .attributed })
+        #expect(try await repository.audit("a.txt") == whole)
+
+        let error = await #expect(throws: LoreError.self) {
+            try await repository.audit("a.txt", revisionLimit: 0)
+        }
+        #expect(error?.code == .invalidArguments)
+    }
+
+    @Test func auditOfMissingAndEmptyFiles() async throws {
+        let (repository, _) = try await repository()
+        let error = await #expect(throws: LoreError.self) {
+            try await repository.audit("missing.txt")
+        }
+        #expect(error?.code == .fileNotFound)
+
+        try repository.write("", to: "empty.txt")
+        try await repository.stage(["empty.txt"])
+        try await repository.commit(message: "Empty")
+        #expect(try await repository.audit("empty.txt").isEmpty)
+    }
+}
