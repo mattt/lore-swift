@@ -58,7 +58,7 @@ public struct BranchInfo: Sendable, Hashable, Identifiable {
 
     /// The latest revision of the branch on the server,
     /// or `nil` if it's unknown.
-    public var remoteLatestRevision: RevisionID?
+    public var remoteRevision: RevisionID?
 
     /// The identifier of the branch that the branch was created from,
     /// or `nil` for a branch that wasn't created from another branch.
@@ -215,7 +215,7 @@ extension Repository {
                     name: String(data.name),
                     category: String(data.category),
                     latestRevision: RevisionID(data.latest),
-                    remoteLatestRevision: RevisionID(data.latest_remote),
+                    remoteRevision: RevisionID(data.latest_remote),
                     parentID: BranchID(data.parent),
                     branchPoint: RevisionID(data.branch_point),
                     creator: String(data.creator),
@@ -241,6 +241,9 @@ extension Repository {
     ///   - name: The name of the branch.
     ///   - includingLinks: Whether to also archive the branch
     ///     in every linked repository.
+    ///     The default is `false`:
+    ///     the library archives the branch only in this repository
+    ///     unless the call asks it to.
     ///   - includingLayers: Whether to also archive the branch
     ///     in the repository of every layer.
     /// - Throws: ``LoreError`` if the library can't archive the branch,
@@ -344,22 +347,22 @@ extension Repository {
     /// - Parameters:
     ///   - branch: The name of the branch,
     ///     or `nil` for the current branch.
-    ///   - limit: The maximum number of revisions to list,
-    ///     or `nil` for the library's default of 30.
+    ///   - limit: The maximum number of revisions to list.
+    ///     The default is 30, the library's default.
     /// - Returns: The revisions.
     /// - Throws: ``LoreError`` if the library can't list the revisions,
     ///   or with ``LoreError/Code/invalidArguments``
     ///   if `limit` is less than 1.
-    public func latestRevisions(on branch: String? = nil, limit: Int? = nil) async throws -> [RevisionID] {
-        // The library reads a limit of 0 as its default.
-        if let limit, limit < 1 {
+    public func latestRevisions(on branch: String? = nil, limit: Int = 30) async throws -> [RevisionID] {
+        // The library reads a limit of 0 as its default, and has no value for no limit.
+        if limit < 1 {
             throw LoreError(code: .invalidArguments, message: "The limit must be at least 1, not \(limit).")
         }
         return try await perform(
             lore_branch_latest_list_async,
             configure: { (arguments: UnsafeMutablePointer<lore_branch_latest_list_args_t>, arena) in
                 arguments.pointee.branch = arena.string(branch)
-                arguments.pointee.limit = UInt32(clamping: limit ?? 0)
+                arguments.pointee.limit = UInt32(clamping: limit)
             },
             transform: { event -> RevisionID? in
                 guard event.pointee.tag == LORE_EVENT_BRANCH_LATEST_LIST_ENTRY.rawValue else {
@@ -423,7 +426,7 @@ extension Repository {
     ///   such as ``LoreError/Code/noRemote``,
     ///   or with ``LoreError/Code/notSupported``
     ///   for a ``MetadataValue/binary(_:)``
-    ///   or ``MetadataValue/address(hash:context:)`` value,
+    ///   or ``MetadataValue/address(_:)`` value,
     ///   which the binding can't set.
     public func setBranchMetadata(_ values: [String: MetadataValue], of branch: String? = nil) async throws {
         let metadata = try EncodedMetadata(values)
@@ -439,19 +442,42 @@ extension Repository {
         )
     }
 
+    /// Removes every metadata value that you set from a branch.
+    ///
+    /// Branch metadata is held on the server,
+    /// so the repository must not be offline.
+    ///
+    /// - Parameter branch: The name of the branch,
+    ///   or `nil` for the current branch.
+    /// - Throws: ``LoreError`` if the library can't clear the metadata,
+    ///   such as ``LoreError/Code/noRemote``.
+    public func clearBranchMetadata(of branch: String? = nil) async throws {
+        try await clearBranchMetadata(selecting: [], of: branch)
+    }
+
     /// Removes metadata values from a branch.
     ///
     /// Branch metadata is held on the server,
     /// so the repository must not be offline.
     ///
     /// - Parameters:
-    ///   - keys: The keys to remove,
-    ///     or an empty array for every value that you set.
+    ///   - keys: The keys to remove.
+    ///     An empty array removes nothing,
+    ///     and the method returns without calling the library.
     ///   - branch: The name of the branch,
     ///     or `nil` for the current branch.
     /// - Throws: ``LoreError`` if the library can't clear the metadata,
     ///   such as ``LoreError/Code/noRemote``.
-    public func clearBranchMetadata(keys: [String] = [], of branch: String? = nil) async throws {
+    public func clearBranchMetadata(keys: [String], of branch: String? = nil) async throws {
+        guard !keys.isEmpty else {
+            return
+        }
+        try await clearBranchMetadata(selecting: keys, of: branch)
+    }
+
+    /// Removes the values for keys from a branch,
+    /// or every value that you set for an empty array.
+    private func clearBranchMetadata(selecting keys: [String], of branch: String?) async throws {
         _ = try await perform(
             lore_branch_metadata_clear_async,
             configure: { (arguments: UnsafeMutablePointer<lore_branch_metadata_clear_args_t>, arena) in

@@ -141,9 +141,13 @@ extension Authentication {
 
     /// The progress of an interactive login.
     public enum LoginProgress: Sendable, Hashable {
-        /// The login waits for the user to open a URL and approve the login,
-        /// entering or confirming the code if there is one.
-        case openURL(String, userCode: String?)
+        /// The login waits for the user to open a URL and approve the login.
+        ///
+        /// - Parameters:
+        ///   - url: The URL for the user to open.
+        ///   - userCode: The code for the user to enter or confirm at `url`,
+        ///     or `nil` if the login doesn't ask for one.
+        case approvalRequested(url: String, userCode: String?)
 
         /// The user hasn't approved the login yet,
         /// and the library is about to wait before it asks the service again.
@@ -189,7 +193,7 @@ extension Authentication {
     /// - Parameters:
     ///   - token: The token.
     ///   - type: The kind of token.
-    ///   - server: The URL of the server,
+    ///   - remote: The URL of the server,
     ///     such as `lore://lore.example.com:41337`.
     /// - Returns: The user that the token identifies.
     /// - Throws: ``LoreError`` if the library can't log in,
@@ -200,10 +204,10 @@ extension Authentication {
     public static func logIn(
         token: String,
         type: TokenType = .lore,
-        server: String
+        remote: String
     ) async throws -> User {
-        try requireURL(server, "server URL")
-        return try await context.logIn(token: token, type: type, server: server, authenticationURL: nil)
+        try requireURL(remote, "server URL")
+        return try await context.logIn(token: token, type: type, remote: remote, authenticationURL: nil)
     }
 
     /// Logs in at an authentication service with a token
@@ -231,7 +235,7 @@ extension Authentication {
         authenticationURL: String
     ) async throws -> User {
         try requireURL(authenticationURL, "authentication URL")
-        return try await context.logIn(token: token, type: type, server: nil, authenticationURL: authenticationURL)
+        return try await context.logIn(token: token, type: type, remote: nil, authenticationURL: authenticationURL)
     }
 
     /// Logs in through the authentication service of a server,
@@ -246,9 +250,9 @@ extension Authentication {
     /// and ends with the user who logged in.
     ///
     /// ```swift
-    /// for try await update in Authentication.logInInteractively(server: url) {
+    /// for try await update in Authentication.logInInteractively(remote: url) {
     ///     switch update {
-    ///     case .progress(.openURL(let url, let userCode)):
+    ///     case .progress(.approvalRequested(let url, let userCode)):
     ///         print("Open", url, "and enter", userCode ?? "nothing")
     ///     case .progress(.pending):
     ///         break
@@ -262,7 +266,7 @@ extension Authentication {
     /// whether or not you iterate the stream,
     /// and continues until the user approves it or it expires.
     ///
-    /// - Parameter server: The URL of the server,
+    /// - Parameter remote: The URL of the server,
     ///   such as `lore://lore.example.com:41337`.
     /// - Returns: A stream of the login's progress, then the user.
     ///   The stream throws ``LoreError`` if the login fails or expires,
@@ -270,14 +274,14 @@ extension Authentication {
     ///   for a server that doesn't use authentication,
     ///   or ``LoreError/Code/invalidArguments`` for an empty server URL.
     public static func logInInteractively(
-        server: String
+        remote: String
     ) -> AsyncThrowingStream<OperationUpdate<LoginProgress, User>, any Error> {
         do {
-            try requireURL(server, "server URL")
+            try requireURL(remote, "server URL")
         } catch {
             return AsyncThrowingStream { $0.finish(throwing: error) }
         }
-        return context.logInInteractively(server: server)
+        return context.logInInteractively(remote: remote)
     }
 
     /// Returns the credentials in the token store.
@@ -400,7 +404,7 @@ extension Repository {
     /// Logs in to the repository's server with a token
     /// and stores it for later operations.
     ///
-    /// See ``Authentication/logIn(token:type:server:)``.
+    /// See ``Authentication/logIn(token:type:remote:)``.
     ///
     /// - Parameters:
     ///   - token: The token.
@@ -414,20 +418,20 @@ extension Repository {
         token: String,
         type: Authentication.TokenType = .lore
     ) async throws -> Authentication.User {
-        try await logIn(token: token, type: type, server: nil, authenticationURL: nil)
+        try await logIn(token: token, type: type, remote: nil, authenticationURL: nil)
     }
 
     /// Logs in to the repository's server
     /// with a URL that the user opens and approves.
     ///
-    /// See ``Authentication/logInInteractively(server:)``.
+    /// See ``Authentication/logInInteractively(remote:)``.
     ///
     /// - Returns: A stream of the login's progress, then the user.
     ///   The stream throws ``LoreError`` if the login fails or expires.
     public func logInInteractively() -> AsyncThrowingStream<
         OperationUpdate<Authentication.LoginProgress, Authentication.User>, any Error
     > {
-        logInInteractively(server: nil)
+        logInInteractively(remote: nil)
     }
 
     /// Removes stored credentials for the authentication service
@@ -500,16 +504,16 @@ extension Repository {
         try await localUsers(withIDs: ids, authenticationURL: nil, includingTokens: includingTokens)
     }
 
-    /// Returns the current user's authorization token for the repository,
-    /// which operations on the repository present to the server.
+    /// Returns the current user's credential for the repository,
+    /// with the authorization token that operations on the repository present to the server.
     ///
-    /// The library uses a stored token that hasn't expired.
+    /// The library uses a stored authorization token that hasn't expired.
     /// Otherwise it gets one from the authentication service
     /// and stores it.
     ///
-    /// - Returns: The credential, with its token.
-    /// - Throws: ``LoreError`` if the library can't get a token.
-    public func accessCredential() async throws -> Authentication.Credential {
+    /// - Returns: The credential, with its authorization token.
+    /// - Throws: ``LoreError`` if the library can't get an authorization token.
+    public func authorizationCredential() async throws -> Authentication.Credential {
         let events = try await perform(
             lore_auth_local_user_info_async,
             configure: { (arguments: UnsafeMutablePointer<lore_auth_local_user_info_args_t>, _) in
@@ -530,13 +534,13 @@ extension Repository {
     fileprivate func logIn(
         token: String,
         type: Authentication.TokenType,
-        server: String?,
+        remote: String?,
         authenticationURL: String?
     ) async throws -> Authentication.User {
         let users = try await perform(
             lore_auth_login_with_token_async,
             configure: { (arguments: UnsafeMutablePointer<lore_auth_login_with_token_args_t>, arena) in
-                arguments.pointee.remote_url = arena.string(server)
+                arguments.pointee.remote_url = arena.string(remote)
                 arguments.pointee.token = arena.string(token)
                 arguments.pointee.token_type = arena.string(type.rawValue)
                 arguments.pointee.auth_url = arena.string(authenticationURL)
@@ -550,12 +554,12 @@ extension Repository {
     }
 
     fileprivate func logInInteractively(
-        server: String?
+        remote: String?
     ) -> AsyncThrowingStream<OperationUpdate<Authentication.LoginProgress, Authentication.User>, any Error> {
         updates(
             lore_auth_login_interactive_async,
             configure: { (arguments: UnsafeMutablePointer<lore_auth_login_interactive_args_t>, arena) in
-                arguments.pointee.remote_url = arena.string(server)
+                arguments.pointee.remote_url = arena.string(remote)
                 // The caller shows the URL; the binding never opens a browser.
                 arguments.pointee.no_browser = 1
             },
@@ -632,7 +636,7 @@ private enum AuthenticationEvent: Sendable {
         case LORE_EVENT_AUTH_URL.rawValue:
             let data = event.pointee.auth_url
             let userCode = String(data.user_code)
-            self = .progress(.openURL(String(data.url), userCode: userCode.isEmpty ? nil : userCode))
+            self = .progress(.approvalRequested(url: String(data.url), userCode: userCode.isEmpty ? nil : userCode))
         case LORE_EVENT_AUTH_PENDING.rawValue:
             let data = event.pointee.auth_pending
             self = .progress(

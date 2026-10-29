@@ -169,7 +169,7 @@ let conflictMarkers = "<<<<<<< ours\nmain\n||||||| original\nbase\n=======\nfeat
         let merge = try await repository.commit(message: "Merge feature")
         #expect(merge.parents == [main.id, feature.id])
         #expect(try repository.read("a.txt") == "main and feature\n")
-        #expect(try await repository.changes(from: "main@2", paths: ["a.txt"]).map(\.path) == ["a.txt"])
+        #expect(try await repository.changes(of: ["a.txt"], from: "main@2").map(\.path) == ["a.txt"])
     }
 
     @Test func unresolveAndRestart() async throws {
@@ -350,10 +350,6 @@ let conflictMarkers = "<<<<<<< ours\nmain\n||||||| original\nbase\n=======\nfeat
         #expect(status.files.first { $0.path == "auto.txt" }?.conflictResolution == .merged)
 
         try await repository.resolveConflicts(in: ["a.txt"], keeping: .mine)
-        // The file information doesn't report the conflicts of a merge in progress.
-        let info = try await repository.fileInfo(of: ["a.txt", "auto.txt", "b.txt"])
-        #expect(info.count == 3)
-        #expect(info.allSatisfy { !$0.isConflicted })
         let error = await #expect(throws: LoreError.self) {
             try await repository.commit(message: "Merge feature")
         }

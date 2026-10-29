@@ -74,7 +74,7 @@ public actor ContentStore {
 
     /// The URL of the server that the store connects to,
     /// or `nil` for a store without a server.
-    public nonisolated let serverURL: String?
+    public nonisolated let remote: String?
 
     /// The options that calls on the store use.
     public nonisolated let options: Repository.Options
@@ -96,14 +96,14 @@ public actor ContentStore {
     init(
         repository: Repository?,
         repositoryID: RepositoryID?,
-        serverURL: String?,
+        remote: String?,
         options: Repository.Options,
         handleID: UInt64,
         onRelease: (@Sendable (LoreError?) -> Void)? = nil
     ) {
         self.repository = repository
         self.repositoryID = repositoryID
-        self.serverURL = serverURL
+        self.remote = remote
         self.options = options
         self.handleID = handleID
         self.onRelease = onRelease
@@ -200,7 +200,7 @@ extension Repository {
     /// Call ``ContentStore/close()`` when you're done with it:
     /// until then, other processes that use the store wait.
     ///
-    /// - Parameter serverURL: The URL of a server,
+    /// - Parameter remote: The URL of a server,
     ///   such as the repository's ``ConfigurationKey/remoteURL``,
     ///   for calls that read or write content on the server,
     ///   or `nil` for a store that uses only the local store.
@@ -210,26 +210,28 @@ extension Repository {
     /// - Returns: The open store.
     /// - Throws: ``LoreError`` if the library can't open the store,
     ///   such as ``LoreError/Code/repositoryNotFound``
-    ///   for a directory that isn't a repository.
-    public func openStore(connectingTo serverURL: String? = nil) async throws -> ContentStore {
-        try await openStore(connectingTo: serverURL, onRelease: nil)
+    ///   for a directory that isn't a repository,
+    ///   or with ``LoreError/Code/invalidArguments`` for an empty server URL.
+    public func openStore(connectingTo remote: String? = nil) async throws -> ContentStore {
+        try await openStore(connectingTo: remote, onRelease: nil)
     }
 
     /// Opens the repository's store,
     /// with an operation that runs when the library closes the store, for tests.
     func openStore(
-        connectingTo serverURL: String?,
+        connectingTo remote: String?,
         onRelease: (@Sendable (LoreError?) -> Void)?
     ) async throws -> ContentStore {
+        try ContentStore.checkRemote(remote)
         let repositoryID = try await state().repositoryID
         let directory = absolutePath
-        let handleID = try await ContentStore.open(caller: self, serverURL: serverURL) { arguments, arena in
+        let handleID = try await ContentStore.open(caller: self, remote: remote) { arguments, arena in
             arguments.pointee.repository_path = arena.string(directory)
         }
         return ContentStore(
             repository: self,
             repositoryID: repositoryID,
-            serverURL: serverURL,
+            remote: remote,
             options: options,
             handleID: handleID,
             onRelease: onRelease
@@ -246,44 +248,54 @@ extension ContentStore {
     /// so you can't load revision trees from it.
     ///
     /// - Parameters:
-    ///   - serverURL: The URL of a server
+    ///   - remote: The URL of a server
     ///     for calls that read or write content on the server,
     ///     or `nil` for a store without a server.
     ///     The store connects when a call first needs the server,
     ///     as the identity in `options`.
     ///   - options: The options that calls on the store use.
     /// - Returns: The open store.
-    /// - Throws: ``LoreError`` if the library can't open the store.
+    /// - Throws: ``LoreError`` if the library can't open the store,
+    ///   or with ``LoreError/Code/invalidArguments`` for an empty server URL.
     public static func openInMemory(
-        connectingTo serverURL: String? = nil,
+        connectingTo remote: String? = nil,
         options: Repository.Options = Repository.Options()
     ) async throws -> ContentStore {
+        try checkRemote(remote)
         let caller = Repository(path: "", options: options)
-        let handleID = try await open(caller: caller, serverURL: serverURL) { arguments, _ in
+        let handleID = try await open(caller: caller, remote: remote) { arguments, _ in
             arguments.pointee.in_memory = 1
         }
         return ContentStore(
             repository: nil,
             repositoryID: nil,
-            serverURL: serverURL,
+            remote: remote,
             options: options,
             handleID: handleID
         )
     }
 
+    /// Throws ``LoreError/Code/invalidArguments`` for an empty server URL,
+    /// because `nil` is the way to open a store without a server.
+    fileprivate static func checkRemote(_ remote: String?) throws {
+        if remote?.isEmpty == true {
+            throw LoreError(code: .invalidArguments, message: "The server URL is empty; pass nil for no server.")
+        }
+    }
+
     /// Opens a store and returns the library's identifier for it.
     fileprivate static func open(
         caller: Repository,
-        serverURL: String?,
+        remote: String?,
         configure: (UnsafeMutablePointer<lore_storage_open_args_t>, Arena) -> Void
     ) async throws -> UInt64 {
         let handles = try await caller.perform(
             lore_storage_open_async,
             configure: { (arguments: UnsafeMutablePointer<lore_storage_open_args_t>, arena) in
                 configure(arguments, arena)
-                if let serverURL {
+                if let remote {
                     arguments.pointee.has_remote_config = 1
-                    arguments.pointee.remote_config.remote_url = arena.string(serverURL)
+                    arguments.pointee.remote_config.remote_url = arena.string(remote)
                 }
             },
             transform: { event -> UInt64? in
@@ -379,31 +391,51 @@ extension ContentStore {
     /// Corresponds to `lore_key_type_t`.
     public struct KeyType: RawRepresentable, Sendable, Hashable {
         /// The raw value of the kind.
-        public var rawValue: UInt32
+        public let rawValue: UInt32
 
         /// Creates a kind from its raw value.
-        public init(rawValue: UInt32) {
+        ///
+        /// Returns `nil` for a raw value that `lore_key_type_t` doesn't define.
+        public init?(rawValue: UInt32) {
+            guard Self.defined.contains(where: { $0.rawValue == rawValue }) else {
+                return nil
+            }
             self.rawValue = rawValue
         }
 
+        private init(_ type: lore_key_type_t) {
+            self.rawValue = type.rawValue
+        }
+
         /// A key without a specific kind.
-        public static let untyped = Self(rawValue: LORE_KEY_TYPE_UNTYPED.rawValue)
+        public static let untyped = Self(LORE_KEY_TYPE_UNTYPED)
         /// A key for branch metadata.
-        public static let branchMetadata = Self(rawValue: LORE_KEY_TYPE_BRANCH_METADATA.rawValue)
+        public static let branchMetadata = Self(LORE_KEY_TYPE_BRANCH_METADATA)
         /// A key for a branch identifier.
-        public static let branchID = Self(rawValue: LORE_KEY_TYPE_BRANCH_ID.rawValue)
+        public static let branchID = Self(LORE_KEY_TYPE_BRANCH_ID)
         /// A key for the latest revision of a branch.
-        public static let branchLatest = Self(rawValue: LORE_KEY_TYPE_BRANCH_LATEST_POINTER.rawValue)
+        public static let branchLatest = Self(LORE_KEY_TYPE_BRANCH_LATEST_POINTER)
         /// A key for repository metadata.
-        public static let repositoryMetadata = Self(rawValue: LORE_KEY_TYPE_REPOSITORY_METADATA.rawValue)
+        public static let repositoryMetadata = Self(LORE_KEY_TYPE_REPOSITORY_METADATA)
         /// A key for a repository identifier.
-        public static let repositoryID = Self(rawValue: LORE_KEY_TYPE_REPOSITORY_ID.rawValue)
+        public static let repositoryID = Self(LORE_KEY_TYPE_REPOSITORY_ID)
         /// A key for a repository instance.
-        public static let instance = Self(rawValue: LORE_KEY_TYPE_INSTANCE.rawValue)
+        public static let instance = Self(LORE_KEY_TYPE_INSTANCE)
         /// A key whose value is the hash of published content.
         ///
         /// See ``ContentStore/publish(_:as:in:context:uploading:)``.
-        public static let published = Self(rawValue: LORE_KEY_TYPE_RESOLVE.rawValue)
+        public static let published = Self(LORE_KEY_TYPE_RESOLVE)
+
+        /// The kinds that `lore_key_type_t` defines.
+        private static let defined: [Self] = [
+            .untyped, .branchMetadata, .branchID, .branchLatest,
+            .repositoryMetadata, .repositoryID, .instance, .published,
+        ]
+
+        /// The library value of the kind.
+        var libraryValue: lore_key_type_t {
+            lore_key_type_t(rawValue: rawValue)
+        }
     }
 
     /// Where a store put content.
@@ -466,7 +498,7 @@ extension ContentStore {
     /// A returned value means that every side that ran succeeded:
     /// the obliteration throws if a side that ran fails.
     /// A `false` flag means that the side didn't run.
-    public struct ObliterateResult: Sendable, Hashable {
+    public struct ObliterationResult: Sendable, Hashable {
         /// The address of the content.
         public var address: ContentAddress
 
@@ -769,8 +801,8 @@ extension ContentStore {
     /// - Throws: ``LoreError`` if either side can't remove the content.
     ///   The other side, such as the local store, may already have removed it.
     @discardableResult
-    public func obliterate(_ address: ContentAddress, in partition: RepositoryID) async throws -> ObliterateResult {
-        let hasServer = serverURL != nil
+    public func obliterate(_ address: ContentAddress, in partition: RepositoryID) async throws -> ObliterationResult {
+        let hasServer = remote != nil
         let events = try await call(
             lore_storage_obliterate_async,
             configure: { (arguments: UnsafeMutablePointer<lore_storage_obliterate_args_t>, handle, arena) in
@@ -781,14 +813,14 @@ extension ContentStore {
                 item.pointee.address = address.libraryValue
                 arguments.pointee.items = lore_storage_obliterate_item_array_t(ptr: item, count: 1)
             },
-            transform: { event -> ItemEvent<ObliterateResult>? in
+            transform: { event -> ItemEvent<ObliterationResult>? in
                 guard event.pointee.tag == LORE_EVENT_STORAGE_OBLITERATE_ITEM_COMPLETE.rawValue else {
                     return nil
                 }
                 let data = event.pointee.storage_obliterate_item_complete
                 return ItemEvent(
                     error: data.error,
-                    value: ObliterateResult(
+                    value: ObliterationResult(
                         address: ContentAddress(data.address),
                         isRemovedLocally: Bool(data.local_success) && !Bool(data.local_skipped),
                         // Without a server, the library reports the server's side as a success.
@@ -1068,7 +1100,7 @@ extension ContentStore {
                 item.pointee.id = 1
                 item.pointee.partition = partition.libraryValue
                 item.pointee.key = key.libraryValue
-                item.pointee.key_type = lore_key_type_t(rawValue: type.rawValue)
+                item.pointee.key_type = type.libraryValue
                 arguments.pointee.items = lore_storage_mutable_load_item_array_t(ptr: item, count: 1)
             },
             transform: { event -> ItemEvent<Hash?>? in
@@ -1110,7 +1142,7 @@ extension ContentStore {
                 if let value {
                     item.pointee.value = value.libraryValue
                 }
-                item.pointee.key_type = lore_key_type_t(rawValue: type.rawValue)
+                item.pointee.key_type = type.libraryValue
                 arguments.pointee.items = lore_storage_mutable_store_item_array_t(ptr: item, count: 1)
             },
             transform: { event -> ItemEvent<Void>? in
@@ -1167,7 +1199,7 @@ extension ContentStore {
                 if let newValue {
                     item.pointee.value = newValue.libraryValue
                 }
-                item.pointee.key_type = lore_key_type_t(rawValue: type.rawValue)
+                item.pointee.key_type = type.libraryValue
                 arguments.pointee.items = lore_storage_mutable_compare_and_swap_item_array_t(ptr: item, count: 1)
             },
             transform: { event -> ItemEvent<Hash?>? in
@@ -1210,7 +1242,7 @@ extension ContentStore {
                 if let partition {
                     item.pointee.partition = partition.libraryValue
                 }
-                item.pointee.key_type = lore_key_type_t(rawValue: type.rawValue)
+                item.pointee.key_type = type.libraryValue
                 arguments.pointee.items = lore_storage_mutable_list_item_array_t(ptr: item, count: 1)
             },
             transform: ListEvent.init

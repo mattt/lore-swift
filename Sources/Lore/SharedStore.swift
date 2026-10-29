@@ -1,10 +1,12 @@
 import CLore
 import Foundation
 
-/// A store that several checkouts of the repositories on one server share,
+/// A store that several checkouts of the repositories on one server,
+/// or of offline repositories, share,
 /// so that content that they have in common is stored once on this computer.
 ///
-/// A shared store belongs to one server.
+/// A shared store belongs to one server,
+/// or, with a ``remote`` of `nil`, to offline repositories.
 /// It's a directory named `shared_store`
 /// inside a directory for the server
 /// that the library names after the server's URL
@@ -12,9 +14,12 @@ import Foundation
 /// with `_` for each `:` and `/`,
 /// such as `stores/127.0.0.1_41337/shared_store`
 /// for a store that ``create(for:in:makingDefault:options:)`` creates in `stores`.
+/// The store of offline repositories is directly in the directory,
+/// such as `stores/shared_store`.
 /// The library records every shared store that it creates
 /// in a registry in the user's Lore data directory,
-/// and the store that it uses by default for each server
+/// and the store that it uses by default for each server,
+/// and for offline repositories,
 /// in the user's global Lore configuration,
 /// `config.toml` in ``Library/userDirectory``.
 /// When `LORE_GLOBAL_PATH` is set in the environment,
@@ -36,11 +41,11 @@ public struct SharedStore: Sendable, Hashable {
 
     /// The URL of the server that the store belongs to,
     /// such as `lore://127.0.0.1:41337`,
-    /// or an empty string for the store of offline repositories.
+    /// or `nil` for the store of offline repositories.
     ///
     /// The library records the URL that the store was created for
     /// without one trailing slash.
-    public var remoteURL: String
+    public var remote: String?
 
     /// The path of the store's `shared_store` directory.
     ///
@@ -62,10 +67,10 @@ extension SharedStore {
             /// The address of the server as the configuration records it:
             /// the server's URL without its scheme and trailing slashes,
             /// such as `127.0.0.1:41337`,
-            /// or an empty string for the default store of offline repositories.
+            /// or `nil` for the default store of offline repositories.
             ///
             /// This isn't a URL that other methods accept.
-            public var serverAddress: String
+            public var serverAddress: String?
 
             /// The path of the store's `shared_store` directory.
             public var path: String
@@ -87,17 +92,21 @@ extension SharedStore {
 }
 
 extension SharedStore {
-    /// Creates a shared store for a server.
+    /// Creates a shared store for a server,
+    /// or the store of offline repositories.
     ///
     /// The library creates the directory for the server
     /// inside `directory`, with the store inside it,
     /// and records the store in its registry.
+    /// The store of offline repositories goes directly in `directory`.
     /// Unless `options.isOffline` is `true`,
-    /// it first connects to the server.
+    /// the library first connects to the server.
     ///
     /// - Parameters:
-    ///   - remoteURL: The URL of the server,
-    ///     such as `lore://127.0.0.1:41337`.
+    ///   - remote: The URL of the server,
+    ///     such as `lore://127.0.0.1:41337`,
+    ///     or `nil` for the store of offline repositories,
+    ///     which needs `options.isOffline`.
     ///   - directory: The directory to create the store in,
     ///     or `nil` for the default directory for the server.
     ///     A relative path is relative to the current directory of the process.
@@ -108,16 +117,17 @@ extension SharedStore {
     /// - Returns: The new store.
     /// - Throws: ``LoreError`` if the library can't create the store,
     ///   such as when a store for the server already exists in the directory,
-    ///   or ``LoreError/Code/invalidArguments`` for an empty server URL.
+    ///   or ``LoreError/Code/noRemote`` for `nil` without `options.isOffline`,
+    ///   or with ``LoreError/Code/invalidArguments`` for an empty server URL.
     @discardableResult
     public static func create(
-        for remoteURL: String,
+        for remote: String?,
         in directory: String? = nil,
         makingDefault: Bool = false,
         options: Repository.Options = Repository.Options()
     ) async throws -> SharedStore {
-        if remoteURL.isEmpty {
-            throw LoreError(code: .invalidArguments, message: "The server URL is empty.")
+        if remote?.isEmpty == true {
+            throw LoreError(code: .invalidArguments, message: "The server URL is empty; pass nil for no server.")
         }
         // The library resolves a relative directory against the working directory of the call,
         // which is empty here.
@@ -125,7 +135,7 @@ extension SharedStore {
         let paths = try await Repository(path: "", options: options).perform(
             lore_shared_store_create_async,
             configure: { (arguments: UnsafeMutablePointer<lore_shared_store_create_args_t>, arena) in
-                arguments.pointee.remote_url = arena.string(remoteURL)
+                arguments.pointee.remote_url = arena.string(remote)
                 arguments.pointee.path = arena.string(directory)
                 arguments.pointee.make_default = UInt8(makingDefault)
             },
@@ -140,11 +150,8 @@ extension SharedStore {
             throw LoreError.missingEvent("the shared store")
         }
         // The library records the URL without one trailing slash.
-        var url = Substring(remoteURL)
-        if url.hasSuffix("/") {
-            url = url.dropLast()
-        }
-        return SharedStore(remoteURL: String(url), path: normalizedPath(path), instances: [])
+        let recorded = remote.map { $0.hasSuffix("/") ? String($0.dropLast()) : $0 }
+        return SharedStore(remote: recorded, path: normalizedPath(path), instances: [])
     }
 
     /// Returns the shared stores in the library's registry.
@@ -235,7 +242,7 @@ extension SharedStore {
             } ?? []
         // The registry records the directory that holds the store.
         self.init(
-            remoteURL: String(item.remote_url),
+            remote: nonEmpty(String(item.remote_url)),
             path: normalizedPath(String(item.store_path) + "/shared_store"),
             instances: zip(ids, paths).map { Instance(id: $0, path: $1) }
         )
@@ -245,15 +252,16 @@ extension SharedStore {
 extension SharedStore.Configuration {
     /// Copies the data of a shared store info event.
     fileprivate init(_ data: lore_shared_store_info_event_data_t) {
-        let remoteURLs = [String](data.remote_urls)
+        // The configuration records server addresses, not URLs.
+        let addresses = [String](data.remote_urls)
         let paths = [String](data.paths)
         let exists =
             data.exists.ptr.map { Array(UnsafeBufferPointer(start: $0, count: Int(data.exists.count))) } ?? []
         var defaultStores: [DefaultStore] = []
-        for index in remoteURLs.indices where index < paths.count {
+        for index in addresses.indices where index < paths.count {
             defaultStores.append(
                 DefaultStore(
-                    serverAddress: remoteURLs[index],
+                    serverAddress: nonEmpty(addresses[index]),
                     path: normalizedPath(paths[index]),
                     exists: index < exists.count && exists[index] != 0
                 )
@@ -315,6 +323,12 @@ extension Repository.StoreLocation {
             path = arena.string(directory.map(Repository.absolutePath(of:)))
         }
     }
+}
+
+/// Returns a server URL or address that the library reports,
+/// or `nil` for the empty string that it reports for no server.
+fileprivate func nonEmpty(_ string: String) -> String? {
+    string.isEmpty ? nil : string
 }
 
 /// Normalizes a path that the library reports for a shared store,

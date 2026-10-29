@@ -74,7 +74,7 @@ import Testing
         #expect(try await repository.metadata(of: "a.txt", revision: "main@2") == values)
     }
 
-    @Test(arguments: [MetadataValue.binary([0xff, 0xfe]), .address(hash: [], context: [])])
+    @Test(arguments: [MetadataValue.binary([0xff, 0xfe]), .address(.repeating(1, context: 2))])
     func refusesValuesTheBindingCannotSet(value: MetadataValue) async throws {
         let repository = try await repositoryWithStagedFile()
         let error = await #expect(throws: LoreError.self) {

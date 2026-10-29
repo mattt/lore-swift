@@ -18,14 +18,14 @@ public enum MetadataValue: Sendable, Hashable {
     /// `lore_file_metadata_set` reads the text of a binary value
     /// as the path of a file,
     /// stores the file's content,
-    /// and records its ``address(hash:context:)``.
+    /// and records its ``address(_:)``.
     case binary([UInt8])
     /// A 32-byte content hash.
     case hash([UInt8])
     /// A 16-byte context identifier.
     case context([UInt8])
-    /// A content address: a 32-byte hash and a 16-byte context.
-    case address(hash: [UInt8], context: [UInt8])
+    /// The address of content in a repository's store.
+    case address(ContentAddress)
 }
 
 extension MetadataValue {
@@ -50,16 +50,13 @@ extension MetadataValue {
         case LORE_METADATA_TYPE_CONTEXT.rawValue:
             self = .context(tupleBytes(value.context.data))
         case LORE_METADATA_TYPE_ADDRESS.rawValue:
-            self = .address(
-                hash: tupleBytes(value.address.hash.data),
-                context: tupleBytes(value.address.context.data)
-            )
+            self = .address(ContentAddress(value.address))
         default:
             return nil
         }
     }
 
-    /// Checks that a hash, context, or address has the number of bytes
+    /// Checks that a hash or context has the number of bytes
     /// that the library's metadata values hold.
     ///
     /// - Throws: ``LoreError`` with ``LoreError/Code/invalidArguments``
@@ -78,10 +75,7 @@ extension MetadataValue {
             try check(bytes, count: 32, "hash")
         case .context(let bytes):
             try check(bytes, count: 16, "context")
-        case .address(let hash, let context):
-            try check(hash, count: 32, "hash")
-            try check(context, count: 16, "context")
-        case .string, .number, .boolean, .binary:
+        case .string, .number, .boolean, .binary, .address:
             break
         }
     }
@@ -119,12 +113,9 @@ extension MetadataValue {
             var context = lore_context_t()
             setTupleBytes(&context.data, to: bytes)
             value.pointee.context = context
-        case .address(let hash, let context):
+        case .address(let address):
             value.pointee.tag = LORE_METADATA_TYPE_ADDRESS.rawValue
-            var address = lore_address_t()
-            setTupleBytes(&address.hash.data, to: hash)
-            setTupleBytes(&address.context.data, to: context)
-            value.pointee.address = address
+            value.pointee.address = address.libraryValue
         }
     }
 
@@ -277,7 +268,7 @@ extension Repository {
     /// - Throws: ``LoreError`` if the library can't set the metadata,
     ///   or with ``LoreError/Code/notSupported``
     ///   for a ``MetadataValue/binary(_:)``
-    ///   or ``MetadataValue/address(hash:context:)`` value,
+    ///   or ``MetadataValue/address(_:)`` value,
     ///   which the binding can't set.
     public func setMetadata(_ values: [String: MetadataValue], of paths: [String]) async throws {
         let metadata = try EncodedMetadata(values)

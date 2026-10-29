@@ -101,7 +101,7 @@ import Testing
 
     @Test func binaryAndAddressValuesHaveNoText() {
         #expect(MetadataValue.binary(Array("abc".utf8)).encoded == nil)
-        #expect(MetadataValue.address(hash: [], context: []).encoded == nil)
+        #expect(MetadataValue.address(.repeating(1, context: 2)).encoded == nil)
     }
 }
 

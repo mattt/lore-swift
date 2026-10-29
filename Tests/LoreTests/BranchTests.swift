@@ -82,7 +82,7 @@ import Testing
         #expect(info.name == "feature")
         #expect(info.category == "work")
         #expect(info.latestRevision == feature.id)
-        #expect(info.remoteLatestRevision == nil)
+        #expect(info.remoteRevision == nil)
         #expect(info.parentID == main[0].branchID)
         #expect(info.branchPoint == main[1].id)
         #expect(info.creator == "test@example.com")
@@ -151,6 +151,16 @@ import Testing
         #expect(error?.code == .invalidArguments)
     }
 
+    @Test func latestRevisionsListsThirtyByDefault() async throws {
+        let (repository, main, _) = try await repositoryWithFeatureBranch()
+        // Each reset of the other branch adds an entry to its list.
+        for index in 0 ..< 32 {
+            try await repository.resetBranch(named: "main", to: .id(main[index % 2].id))
+        }
+        #expect(try await repository.latestRevisions(on: "main").count == 30)
+        #expect(try await repository.latestRevisions(on: "main", limit: 40).count > 30)
+    }
+
     @Test func branchMetadataIncludesTheBranchRecord() async throws {
         let (repository, _, feature) = try await repositoryWithFeatureBranch()
         let metadata = try await repository.branchMetadata()
@@ -172,5 +182,11 @@ import Testing
             try await repository.clearBranchMetadata(of: "main")
         }
         #expect(clear?.code == .noRemote)
+        let clearKeys = await #expect(throws: LoreError.self) {
+            try await repository.clearBranchMetadata(keys: ["owner"])
+        }
+        #expect(clearKeys?.code == .noRemote)
+        // No keys means no library call, so the offline repository doesn't fail.
+        try await repository.clearBranchMetadata(keys: [])
     }
 }

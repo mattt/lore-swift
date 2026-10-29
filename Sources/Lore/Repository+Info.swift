@@ -105,7 +105,7 @@ extension Repository {
     ///   such as ``LoreError/Code/noRemote``,
     ///   or with ``LoreError/Code/notSupported``
     ///   for a ``MetadataValue/binary(_:)``
-    ///   or ``MetadataValue/address(hash:context:)`` value,
+    ///   or ``MetadataValue/address(_:)`` value,
     ///   which the binding can't set.
     public func setRepositoryMetadata(_ values: [String: MetadataValue]) async throws {
         let metadata = try EncodedMetadata(values)
@@ -120,16 +120,37 @@ extension Repository {
         )
     }
 
+    /// Removes every metadata value that you set from the repository.
+    ///
+    /// Repository metadata is held on the server,
+    /// so the repository must not be offline.
+    ///
+    /// - Throws: ``LoreError`` if the library can't clear the metadata,
+    ///   such as ``LoreError/Code/noRemote``.
+    public func clearRepositoryMetadata() async throws {
+        try await clearRepositoryMetadata(selecting: [])
+    }
+
     /// Removes metadata values from the repository.
     ///
     /// Repository metadata is held on the server,
     /// so the repository must not be offline.
     ///
-    /// - Parameter keys: The keys to remove,
-    ///   or an empty array for every value that you set.
+    /// - Parameter keys: The keys to remove.
+    ///   An empty array removes nothing,
+    ///   and the method returns without calling the library.
     /// - Throws: ``LoreError`` if the library can't clear the metadata,
     ///   such as ``LoreError/Code/noRemote``.
-    public func clearRepositoryMetadata(keys: [String] = []) async throws {
+    public func clearRepositoryMetadata(keys: [String]) async throws {
+        guard !keys.isEmpty else {
+            return
+        }
+        try await clearRepositoryMetadata(selecting: keys)
+    }
+
+    /// Removes the values for keys from the repository,
+    /// or every value that you set for an empty array.
+    private func clearRepositoryMetadata(selecting keys: [String]) async throws {
         _ = try await perform(
             lore_repository_metadata_clear_async,
             configure: { (arguments: UnsafeMutablePointer<lore_repository_metadata_clear_args_t>, arena) in

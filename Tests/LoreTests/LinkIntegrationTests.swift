@@ -304,7 +304,7 @@ import Testing
         try await app.push()
 
         try await app.switchBranch(to: "main")
-        try await app.mergeBranch(named: "feature", message: "Merge feature", includingLinks: false)
+        try await app.mergeBranch(named: "feature", message: "Merge feature", ignoringLinks: true)
         #expect(try app.read("a.txt") == "a feature\n")
         #expect(try app.read("vendor/library/x.txt") == "x1\n")
         #expect(try await app.links().first?.revision == pin)

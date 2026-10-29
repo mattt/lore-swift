@@ -1,3 +1,4 @@
+import CLore
 import Foundation
 import Synchronization
 import Testing
@@ -54,6 +55,81 @@ private final class TimeLimitOutcome<T: Sendable>: Sendable {
             try await repository.notifications()
         }
         #expect(error?.code == .internal)
+    }
+}
+
+/// A library call that a test drives with events of its own.
+private final class SyntheticCall: @unchecked Sendable {
+    private let configuration = Mutex<lore_event_callback_config_t?>(nil)
+
+    /// Records the callback configuration that the binding passes to the library.
+    func start(_ configuration: lore_event_callback_config_t) {
+        self.configuration.withLock { $0 = configuration }
+    }
+
+    /// Delivers an event to the callback, as the library does.
+    func send(_ configure: (inout lore_event_t) -> Void) {
+        var event = lore_event_t()
+        configure(&event)
+        guard let configuration = configuration.withLock({ $0 }), let callback = configuration.func else {
+            Issue.record("The call hasn't started.")
+            return
+        }
+        withUnsafePointer(to: event) { callback($0, configuration.user_context) }
+    }
+
+    /// Delivers a `COMPLETE` event with a status.
+    func complete(status: Int32 = 0) {
+        send { event in
+            event.tag = LORE_EVENT_COMPLETE.rawValue
+            event.complete.status = status
+        }
+    }
+
+    /// Delivers the `END` event, which carries no error.
+    func end() {
+        send { $0.tag = LORE_EVENT_END.rawValue }
+    }
+}
+
+/// Tests of the function that starts a subscription,
+/// with events that the tests send in place of the library's.
+@Suite struct SubscribeCallTests {
+    @Test func completingAndEndingEndsWithoutAnError() async throws {
+        let call = SyntheticCall()
+        let ends = ReleaseLog()
+        let events = Mutex(0)
+        try await subscribe(
+            onEvent: { _ in events.withLock { $0 += 1 } },
+            onEnd: ends.record,
+            start: { configuration in
+                call.start(configuration)
+                call.complete()
+            }
+        )
+        #expect(ends.errors.isEmpty)
+        call.send { $0.tag = LORE_EVENT_NOTIFICATION_BRANCH_CREATED.rawValue }
+        #expect(events.withLock { $0 } == 1)
+        call.end()
+        #expect(ends.errors == [nil])
+    }
+
+    @Test func aFailedCompletionThrowsAndEndsWithTheError() async throws {
+        let call = SyntheticCall()
+        let ends = ReleaseLog()
+        let failure = await #expect(throws: LoreError.self) {
+            try await subscribe(
+                onEvent: { _ in },
+                onEnd: ends.record,
+                start: { configuration in
+                    call.start(configuration)
+                    call.complete(status: LoreError.Code.invalidArguments.rawValue)
+                    call.end()
+                }
+            )
+        }
+        #expect(failure?.code == .invalidArguments)
+        #expect(ends.errors == [failure])
     }
 }
 
@@ -250,6 +326,71 @@ private final class TimeLimitOutcome<T: Sendable>: Sendable {
         try await expectEventually { unsubscribed.value == 1 }
     }
 
+    @Test func aChannelFinishesItsStreamsWhenTheLibraryEndsTheCall() async throws {
+        let call = SyntheticCall()
+        let unsubscribed = Counter()
+        let subscriptions = NotificationSubscriptions(
+            subscribe: { channel in
+                try await channel.subscribe { configuration in
+                    call.start(configuration)
+                    call.complete()
+                }
+            },
+            unsubscribe: { _ in unsubscribed.increment() }
+        )
+        let repository = repository
+        let repositoryID = repositoryID
+        let branchID = try #require(BranchID(bytes: Array(repeating: 1, count: 16)))
+        let notifications = try await withTimeLimit {
+            let stream = try await subscriptions.join(repository, repositoryID: repositoryID)
+            call.send { event in
+                event.tag = LORE_EVENT_NOTIFICATION_BRANCH_CREATED.rawValue
+                setTupleBytes(&event.notification_branch_created.branch.data, to: branchID.bytes)
+            }
+            // The library ends an established subscription with `END` alone.
+            call.end()
+            var notifications: [RepositoryNotification] = []
+            for try await notification in stream {
+                notifications.append(notification)
+            }
+            return notifications
+        }
+        #expect(notifications == [.branchCreated(branchID: branchID)])
+        // The library ended the subscription, so the binding doesn't unsubscribe.
+        try await expectEventually { await subscriptions.channel(for: repositoryID) == nil }
+        #expect(unsubscribed.value == 0)
+    }
+
+    @Test func aChannelFinishesItsStreamsWithTheErrorOfAFailedCall() async throws {
+        let call = SyntheticCall()
+        let channel = NotificationChannel(
+            owner: NotificationSubscriptions(),
+            repository: repository,
+            repositoryID: repositoryID
+        )
+        let stream = try #require(channel.makeStream())
+        let failure = await #expect(throws: LoreError.self) {
+            try await channel.subscribe { configuration in
+                call.start(configuration)
+                call.complete(status: LoreError.Code.invalidArguments.rawValue)
+                call.end()
+            }
+        }
+        #expect(failure?.code == .invalidArguments)
+        // The time limit makes a stream that doesn't finish fail the test.
+        let thrown = try await withTimeLimit { () -> LoreError? in
+            do {
+                for try await _ in stream {}
+                return nil
+            } catch let error as LoreError {
+                return error
+            }
+        }
+        #expect(thrown != nil)
+        #expect(thrown == failure)
+        #expect(channel.hasEnded)
+    }
+
     @Test func aChannelKeepsTheRepositoryPathAsItResolvedWhenItJoined() async throws {
         let absolute = try await makeOfflineRepository()
         let currentDirectory = FileManager.default.currentDirectoryPath
@@ -298,12 +439,16 @@ extension Result where Failure == any Error {
         private let storage: Storage
         private let task: Task<Void, Never>
 
-        init(_ stream: AsyncStream<RepositoryNotification>) {
+        init(_ stream: AsyncThrowingStream<RepositoryNotification, any Error>) {
             let storage = Storage()
             self.storage = storage
             task = Task {
-                for await notification in stream {
-                    storage.notifications.withLock { $0.append(notification) }
+                do {
+                    for try await notification in stream {
+                        storage.notifications.withLock { $0.append(notification) }
+                    }
+                } catch {
+                    Issue.record(error, "The notification stream threw.")
                 }
             }
         }
@@ -396,7 +541,7 @@ extension Result where Failure == any Error {
         let pushed = try await commitAndPush("from bob\n", in: bob)
         #expect(
             try await collector.first { if case .branchPushed = $0 { true } else { false } }
-                == .branchPushed(branchID: mainID, revisionID: pushed.id, revisionNumber: 2, userID: "<unknown>")
+                == .branchPushed(branchID: mainID, revision: pushed.id, revisionNumber: 2, userID: "<unknown>")
         )
 
         try await bob.createBranch(named: "feature")
@@ -406,7 +551,7 @@ extension Result where Failure == any Error {
         #expect(try await collector.first { $0 == .branchCreated(branchID: featureID) } != nil)
         #expect(
             try await collector.first {
-                $0 == .branchPushed(branchID: featureID, revisionID: feature.id, revisionNumber: 3, userID: "<unknown>")
+                $0 == .branchPushed(branchID: featureID, revision: feature.id, revisionNumber: 3, userID: "<unknown>")
             } != nil
         )
 
@@ -433,7 +578,7 @@ extension Result where Failure == any Error {
         let own = try await commitAndPush("from alice\n", in: alice)
         #expect(
             try await collector.first {
-                $0 == .branchPushed(branchID: mainID, revisionID: own.id, revisionNumber: 3, userID: "<unknown>")
+                $0 == .branchPushed(branchID: mainID, revision: own.id, revisionNumber: 3, userID: "<unknown>")
             } != nil
         )
 
@@ -543,8 +688,12 @@ extension Result where Failure == any Error {
             let four = try await commitAndPush("four\n", in: bob)
             let notification = await withTaskGroup(of: RepositoryNotification?.self) { group in
                 group.addTask {
-                    for await notification in stream {
-                        return notification
+                    do {
+                        for try await notification in stream {
+                            return notification
+                        }
+                    } catch {
+                        Issue.record(error, "The notification stream threw.")
                     }
                     return nil
                 }
@@ -558,7 +707,7 @@ extension Result where Failure == any Error {
             }
             #expect(
                 notification
-                    == .branchPushed(branchID: mainID, revisionID: four.id, revisionNumber: 4, userID: "<unknown>")
+                    == .branchPushed(branchID: mainID, revision: four.id, revisionNumber: 4, userID: "<unknown>")
             )
         }
         try await expectUnsubscribed(repositoryID, renewed)

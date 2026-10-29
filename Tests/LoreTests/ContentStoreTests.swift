@@ -40,7 +40,7 @@ import Testing
         let store = try await repository.openStore()
         #expect(store.repository == repository)
         #expect(store.repositoryID == id)
-        #expect(store.serverURL == nil)
+        #expect(store.remote == nil)
         #expect(await !store.isClosed)
         try await store.close()
         #expect(await store.isClosed)
@@ -50,6 +50,21 @@ import Testing
             try await Repository(path: temporaryPath("not-a-repository")).openStore()
         }
         #expect(missing?.code == .repositoryNotFound)
+    }
+
+    @Test func storesRefuseAnEmptyServerURL() async throws {
+        let (repository, _, _) = try await makeRepository()
+        let local = await #expect(throws: LoreError.self) {
+            try await repository.openStore(connectingTo: "")
+        }
+        #expect(local?.code == .invalidArguments)
+        let inMemory = await #expect(throws: LoreError.self) {
+            try await ContentStore.openInMemory(connectingTo: "")
+        }
+        #expect(inMemory?.code == .invalidArguments)
+        // The repository's store stays free for a store without a server.
+        let store = try await repository.openStore()
+        try await store.close()
     }
 
     @Test func putsAndReadsContent() async throws {
@@ -680,6 +695,26 @@ import Testing
         #expect(ContentStore.Hash(revision).bytes == bytes)
     }
 
+    @Test(arguments: [
+        (LORE_KEY_TYPE_UNTYPED, ContentStore.KeyType.untyped),
+        (LORE_KEY_TYPE_BRANCH_METADATA, .branchMetadata),
+        (LORE_KEY_TYPE_BRANCH_ID, .branchID),
+        (LORE_KEY_TYPE_BRANCH_LATEST_POINTER, .branchLatest),
+        (LORE_KEY_TYPE_REPOSITORY_METADATA, .repositoryMetadata),
+        (LORE_KEY_TYPE_REPOSITORY_ID, .repositoryID),
+        (LORE_KEY_TYPE_INSTANCE, .instance),
+        (LORE_KEY_TYPE_RESOLVE, .published),
+    ])
+    func keyTypesHaveTheRawValuesThatTheHeaderDefines(type: lore_key_type_t, keyType: ContentStore.KeyType) {
+        #expect(ContentStore.KeyType(rawValue: type.rawValue) == keyType)
+        #expect(keyType.rawValue == type.rawValue)
+    }
+
+    @Test(arguments: [LORE_KEY_TYPE_RESOLVE.rawValue + 1, 100, .max])
+    func keyTypesRejectOtherRawValues(rawValue: UInt32) {
+        #expect(ContentStore.KeyType(rawValue: rawValue) == nil)
+    }
+
     @Test func argumentsAreZeroedApartFromTheFieldsThatTheBindingSets() throws {
         // The header requires every byte of a structure to be zero,
         // padding included, unless the binding sets it.
@@ -723,7 +758,7 @@ import Testing
     @Test func uploadsContentToTheServer() async throws {
         let (repository, id, url) = try await makePublishedRepository()
         let store = try await repository.openStore(connectingTo: url)
-        #expect(store.serverURL == url)
+        #expect(store.remote == url)
 
         let local = try await store.put(Data("uploaded later\n".utf8), in: id)
         #expect(local.isStoredLocally)

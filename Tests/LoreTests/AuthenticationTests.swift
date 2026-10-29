@@ -147,13 +147,13 @@ import Testing
         let token = try makeToken(subject: "alice", rootDomains: ["example.test"])
         let errors = [
             await #expect(throws: LoreError.self) {
-                try await Authentication.logIn(token: token, server: "")
+                try await Authentication.logIn(token: token, remote: "")
             },
             await #expect(throws: LoreError.self) {
                 try await Authentication.logIn(token: token, authenticationURL: "")
             },
             await #expect(throws: LoreError.self) {
-                for try await _ in Authentication.logInInteractively(server: "") {}
+                for try await _ in Authentication.logInInteractively(remote: "") {}
             },
             await #expect(throws: LoreError.self) {
                 try await Authentication.logOut(authenticationURL: "")
@@ -214,12 +214,12 @@ import Testing
             _ = isolatedHome
             let token = try makeToken(subject: "alice", rootDomains: ["127.0.0.1"])
             let error = await #expect(throws: LoreError.self) {
-                try await Authentication.logIn(token: token, server: serverURL)
+                try await Authentication.logIn(token: token, remote: serverURL)
             }
             #expect(error?.code == .notSupported)
 
             let interactive = await #expect(throws: LoreError.self) {
-                for try await _ in Authentication.logInInteractively(server: serverURL) {}
+                for try await _ in Authentication.logInInteractively(remote: serverURL) {}
             }
             #expect(interactive?.code == .notSupported)
         }
@@ -278,7 +278,7 @@ import Testing
             }
             #expect(unauthenticated?.code == .notAuthenticated)
 
-            let user = try await Authentication.logIn(token: try token(for: "alice", name: "Alice"), server: server)
+            let user = try await Authentication.logIn(token: try token(for: "alice", name: "Alice"), remote: server)
             #expect(user == Authentication.User(id: "alice", name: "Alice"))
             let credentials = try await Authentication.credentials()
             #expect(credentials.map(\.authenticationURL) == [authenticationURL])
@@ -301,20 +301,20 @@ import Testing
             #expect(try await repository.users() == [Authentication.User(id: "alice", name: "Alice")])
             #expect(try await repository.localUsers().map(\.id) == ["alice"])
 
-            let access = try await repository.accessCredential()
-            #expect(access.authenticationURL == authenticationURL)
-            #expect(access.userID == "alice")
-            #expect(access.resource == (try await repository.info().id.description))
-            #expect(access.token != nil)
-            #expect(try await Authentication.credentials().compactMap(\.resource) == [access.resource])
+            let authorization = try await repository.authorizationCredential()
+            #expect(authorization.authenticationURL == authenticationURL)
+            #expect(authorization.userID == "alice")
+            #expect(authorization.resource == (try await repository.info().id.description))
+            #expect(authorization.token != nil)
+            #expect(try await Authentication.credentials().compactMap(\.resource) == [authorization.resource])
 
-            try await repository.logOut(userID: "alice", resource: access.resource)
+            try await repository.logOut(userID: "alice", resource: authorization.resource)
             let remaining = try await Authentication.credentials()
             #expect(remaining.map(\.userID) == ["alice"])
             #expect(remaining.map(\.resource) == [nil])
-            #expect(try await repository.accessCredential().resource == access.resource)
+            #expect(try await repository.authorizationCredential().resource == authorization.resource)
 
-            try await repository.logOut(resource: access.resource)
+            try await repository.logOut(resource: authorization.resource)
             #expect(try await Authentication.credentials().isEmpty)
             let unauthorized = await #expect(throws: LoreError.self) {
                 try await repository.push()
@@ -323,7 +323,7 @@ import Testing
         }
 
         @Test func repositoryLoginUsesItsServer() async throws {
-            try await Authentication.logIn(token: try token(for: "alice"), server: server)
+            try await Authentication.logIn(token: try token(for: "alice"), remote: server)
             let path = temporaryRepositoryPath("authenticated")
             let repository = try await Repository.create(
                 at: path,
@@ -339,7 +339,7 @@ import Testing
 
         /// Deletes only a repository that this suite creates on the local server.
         @Test func onlyTheCreatorDeletesARepositoryFromTheServer() async throws {
-            try await Authentication.logIn(token: try token(for: "alice"), server: server)
+            try await Authentication.logIn(token: try token(for: "alice"), remote: server)
             let alice = Repository.Options(identity: "alice")
             let path = temporaryRepositoryPath("deleted")
             let url = "\(server)/\(URL(filePath: path).lastPathComponent)"
@@ -350,7 +350,7 @@ import Testing
             try await repository.push()
             try await Repository.clone(from: url, to: temporaryRepositoryPath("clone"), options: alice)
 
-            try await Authentication.logIn(token: try token(for: "bob"), server: server)
+            try await Authentication.logIn(token: try token(for: "bob"), remote: server)
             let refused = await #expect(throws: LoreError.self) {
                 try await Repository.deleteFromServer(url, options: Repository.Options(identity: "bob"))
             }
@@ -386,11 +386,11 @@ import Testing
 
         @Test func interactiveLogin() async throws {
             let (progress, user) = try await logInInteractively(
-                Authentication.logInInteractively(server: server),
+                Authentication.logInInteractively(remote: server),
                 approvingWith: try token(for: "dana", name: "Dana")
             )
             #expect(user == Authentication.User(id: "dana", name: "Dana"))
-            guard case .openURL(let url, let userCode)? = progress.first else {
+            guard case .approvalRequested(let url, let userCode)? = progress.first else {
                 Issue.record("The login reported no URL")
                 return
             }
@@ -414,7 +414,7 @@ import Testing
         }
 
         @Test func repositoryInteractiveLoginUsesItsServer() async throws {
-            try await Authentication.logIn(token: try token(for: "dana"), server: server)
+            try await Authentication.logIn(token: try token(for: "dana"), remote: server)
             let path = temporaryRepositoryPath("authenticated")
             let repository = try await Repository.create(
                 at: path,
@@ -428,7 +428,7 @@ import Testing
                 approvingWith: try token(for: "dana", name: "Dana")
             )
             #expect(user == Authentication.User(id: "dana", name: "Dana"))
-            guard case .openURL(let url, _)? = progress.first else {
+            guard case .approvalRequested(let url, _)? = progress.first else {
                 Issue.record("The login reported no URL")
                 return
             }
@@ -484,7 +484,7 @@ import Testing
             let repository = try await makeRepository()
             let refreshToken = "refresh-\(UUID().uuidString)"
             try await logInInteractively(
-                Authentication.logInInteractively(server: server),
+                Authentication.logInInteractively(remote: server),
                 approvingWith: try token(for: "erin"),
                 refreshToken: refreshToken
             )
@@ -497,7 +497,7 @@ import Testing
         /// Creates a repository on the server
         /// and leaves the token store empty.
         private func makeRepository() async throws -> Repository {
-            try await Authentication.logIn(token: try token(for: "erin"), server: server)
+            try await Authentication.logIn(token: try token(for: "erin"), remote: server)
             let path = temporaryRepositoryPath("authenticated")
             let repository = try await Repository.create(
                 at: path,
@@ -527,7 +527,7 @@ import Testing
                 case .progress(let update):
                     progress.append(update)
                     switch update {
-                    case .openURL(_, let code):
+                    case .approvalRequested(_, let code):
                         userCode = code
                     case .pending:
                         if let code = userCode {

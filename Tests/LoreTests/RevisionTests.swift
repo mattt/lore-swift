@@ -142,7 +142,7 @@ import Testing
             ]
         )
         #expect(
-            try await repository.changes(from: "main@1", to: "main@3", paths: ["b.txt"]) == [
+            try await repository.changes(of: ["b.txt"], from: "main@1", to: "main@3") == [
                 FileChange(path: "b.txt", action: .add, kind: .file)
             ]
         )
