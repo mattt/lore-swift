@@ -52,10 +52,12 @@ extension Repository {
     ///
     /// The server deletes the repository for every user,
     /// and the library offers no way to undo it.
-    /// Afterward, the server doesn't list the repository
-    /// or find it by name,
-    /// so a clone of it fails with ``LoreError/Code/notFound``.
+    /// Afterward, a clone of the repository
+    /// and ``info()`` in a checkout of it
+    /// fail with ``LoreError/Code/notFound``.
     /// Checkouts of the repository keep their files and revisions.
+    /// In Lore 0.11.0, a push from such a checkout still succeeds,
+    /// and the server still doesn't find the repository afterward.
     /// A server lets the user who created the repository delete it,
     /// and a user that it grants the `owner` or `admin` permission.
     ///

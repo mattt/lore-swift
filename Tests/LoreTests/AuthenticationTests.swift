@@ -366,6 +366,22 @@ import Testing
             }
             #expect(again?.code == .notFound)
             #expect(try repository.read("a.txt") == "hello\n")
+
+            // A push from the checkout still succeeds,
+            // and the server still doesn't find the repository.
+            try repository.write("two\n", to: "a.txt")
+            try await repository.stage(["a.txt"])
+            try await repository.commit(message: "Second")
+            let push = try await repository.push()
+            #expect(push.revisionNumber == 2)
+            let afterPush = await #expect(throws: LoreError.self) {
+                try await Repository.clone(from: url, to: temporaryRepositoryPath("clone"), options: alice)
+            }
+            #expect(afterPush?.code == .notFound)
+            let info = await #expect(throws: LoreError.self) {
+                try await repository.info()
+            }
+            #expect(info?.code == .notFound)
         }
 
         @Test func interactiveLogin() async throws {
