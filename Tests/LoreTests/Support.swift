@@ -124,6 +124,13 @@ extension Repository {
     }
 }
 
+extension ContentAddress {
+    /// An address whose hash and context repeat one byte each.
+    static func repeating(_ hash: UInt8, context: UInt8) -> ContentAddress {
+        ContentAddress(hash: Array(repeating: hash, count: 32), context: Array(repeating: context, count: 16))!
+    }
+}
+
 /// A reference that doesn't keep its object alive.
 final class WeakReference<Object: AnyObject> {
     weak var value: Object?

@@ -752,7 +752,7 @@ import Testing
         (.binary([1, 2, 3]), 16),
         (.hash(Array(repeating: 0xff, count: 32)), 32),
         (.context(Array(repeating: 0xff, count: 16)), 16),
-        (.address(ContentAddress(hash: Array(repeating: 0xff, count: 32), context: Array(repeating: 0xff, count: 16))!), 48),
+        (.address(.repeating(0xff, context: 0xff)), 48),
     ])
     func metadataValuesKeepTheirPaddingZero(_ value: MetadataValue, memberSize: Int) throws {
         // The header requires every byte of a structure to be zero,
