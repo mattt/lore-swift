@@ -387,14 +387,16 @@ import Testing
         let (repository, revisions) = try await repository()
         try repository.write("one\nTWO\nthree \nfour\nfive\n", to: "a.txt")
 
-        let attributions = try await repository.audit("a.txt")
+        let attributions = try await repository.audit("a.txt", ignoringTrailingWhitespace: true)
         #expect(attributions.map(\.lines) == [1 ... 1, 2 ... 2, 3 ... 3, 4 ... 4, 5 ... 5])
         #expect(attributions.map(\.outcome) == [.attributed, .attributed, .attributed, .attributed, .uncommitted])
         #expect(attributions[2].revision == revisions[0].id)
         #expect(attributions[4].revision == nil)
 
-        let strict = try await repository.audit("a.txt", ignoringTrailingWhitespace: false)
+        // Trailing whitespace counts by default, as it does for a diff.
+        let strict = try await repository.audit("a.txt")
         #expect(strict.map(\.outcome) == [.attributed, .attributed, .uncommitted, .attributed, .uncommitted])
+        #expect(try await repository.audit("a.txt", ignoringTrailingWhitespace: false) == strict)
     }
 
     @Test func auditHonorsTheRevisionLimit() async throws {

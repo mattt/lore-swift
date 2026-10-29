@@ -155,6 +155,9 @@ extension Repository {
     ///     ``LineAttribution/Outcome/revisionLimitReached``.
     ///   - ignoringTrailingWhitespace: Whether lines that differ only
     ///     in trailing whitespace are equal.
+    ///     The default is `false`, as it is for
+    ///     ``diff(of:from:to:contextLines:ignoringTrailingWhitespace:ignoringWhitespaceChanges:)``,
+    ///     although the library ignores trailing whitespace in an audit by default.
     ///   - ignoringWhitespaceChanges: Whether runs of whitespace within a line
     ///     compare equal to a single space,
     ///     so that a reindented line keeps the revision that wrote its text.
@@ -174,7 +177,7 @@ extension Repository {
         _ path: String,
         revision: RevisionSpecifier? = nil,
         revisionLimit: Int? = 100,
-        ignoringTrailingWhitespace: Bool = true,
+        ignoringTrailingWhitespace: Bool = false,
         ignoringWhitespaceChanges: Bool = false
     ) async throws -> [LineAttribution] {
         // The library reads a limit of 0 as its default of 100,
@@ -317,6 +320,8 @@ extension Repository {
     ///   - contextLines: The number of unchanged lines to include around each change.
     ///   - ignoringTrailingWhitespace: Whether lines that differ only
     ///     in trailing whitespace are equal.
+    ///     The default is `false`, as it is for
+    ///     ``audit(_:revision:revisionLimit:ignoringTrailingWhitespace:ignoringWhitespaceChanges:)``.
     ///   - ignoringWhitespaceChanges: Whether runs of whitespace within a line
     ///     compare equal to a single space.
     /// - Returns: The differences of each file that differs.
