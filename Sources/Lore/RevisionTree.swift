@@ -23,9 +23,10 @@ import Foundation
 /// and the claim of the repository's store,
 /// which makes other processes that use the store wait,
 /// until you call ``close()``.
-/// After ``close()``, every method throws ``LoreError``
+/// After ``close()``, every other method throws ``LoreError``
 /// with ``LoreError/Code/invalidArguments``
-/// without calling the library.
+/// without calling the library,
+/// and ``close()`` does nothing.
 /// If you release the last reference to a tree without closing it,
 /// its deinitializer starts the library call that closes it
 /// and returns without waiting for the call to end;
@@ -156,6 +157,11 @@ extension Repository {
     /// For a repository without revisions,
     /// use ``loadEmptyRevisionTree()``.
     /// Call ``RevisionTree/close()`` when you're done with the tree.
+    ///
+    /// A commit from the tree succeeds only while the loaded revision
+    /// is the latest revision of its branch,
+    /// unless the tree's `branch` metadata value names a new branch
+    /// whose branch point is the loaded revision.
     ///
     /// - Parameter revision: The revision, or `nil` for the current revision.
     /// - Returns: The loaded tree.
@@ -291,7 +297,7 @@ extension RevisionTree {
         }
 
         /// The node is unchanged.
-        public static let none = Self(rawValue: LORE_NODE_STAGED_ACTION_NONE.rawValue)
+        public static let unchanged = Self(rawValue: LORE_NODE_STAGED_ACTION_NONE.rawValue)
         /// The node was added.
         public static let add = Self(rawValue: LORE_NODE_STAGED_ACTION_ADD.rawValue)
         /// The content of the node was modified.
@@ -318,12 +324,15 @@ extension RevisionTree {
 
         /// The kind of node,
         /// or `nil` for a kind that the binding doesn't know.
+        ///
+        /// A node of kind ``NodeKind/symbolicLink`` is a link to another repository's tree.
         public var kind: NodeKind?
 
         /// The change to the node that the tree holds for the next commit.
         ///
-        /// A deleted node stays in the tree with ``StagedAction/delete``
-        /// until the commit.
+        /// A deleted node of the loaded revision stays in the tree
+        /// with ``StagedAction/delete`` until the commit;
+        /// see ``RevisionTree/delete(_:)``.
         public var stagedAction: StagedAction
 
         /// The file mode of the node.
@@ -391,7 +400,7 @@ extension RevisionTree {
 extension RevisionTree.StagedAction: CustomStringConvertible {
     public var description: String {
         switch self {
-        case .none: "none"
+        case .unchanged: "unchanged"
         case .add: "add"
         case .modify: "modify"
         case .delete: "delete"
@@ -471,7 +480,8 @@ extension RevisionTree {
     /// Lists the nodes in a directory.
     ///
     /// - Parameter directory: The directory, or ``NodeID/root`` for the root directory.
-    /// - Returns: The nodes in the directory, including deleted ones.
+    /// - Returns: The nodes in the directory,
+    ///   including the nodes of the loaded revision that are deleted.
     ///   The nodes in a link belong to the linked repository's tree.
     /// - Throws: ``LoreError`` if the library can't list the directory,
     ///   such as ``LoreError/Code/invalidArguments`` for a node that isn't a directory.
@@ -650,10 +660,13 @@ extension RevisionTree {
         /// - Parameters:
         ///   - name: The name of the file.
         ///   - parent: The directory that the file goes in.
-        ///   - address: The address of the file's content in the store,
-        ///     such as the ``StoredContent/address`` of another file.
-        ///     The context of the address is the identity of the file;
-        ///     an address with a zero context gives the file a new identity.
+        ///   - address: The address of the file's content in the store.
+        ///     The context of the address is the identity of the file.
+        ///     A zero context gives the file a new identity,
+        ///     except when the file restores a deleted node,
+        ///     which keeps its identity; see ``RevisionTree/delete(_:)``.
+        ///     The ``StoredContent/address`` of another file carries that file's identity,
+        ///     so give a copy a zero context.
         ///   - size: The size of the content, in bytes.
         ///   - mode: The file mode.
         public static func file(
@@ -674,8 +687,9 @@ extension RevisionTree {
 
         /// The address of the file's new content in the store.
         ///
-        /// An address with a zero context keeps the identity of the file;
-        /// another context gives the file that identity.
+        /// An address with a zero context keeps the identity of the file.
+        /// Another context replaces the file's identity,
+        /// so the commit records the edit as a move.
         public var address: ContentAddress
 
         /// The size of the new content, in bytes.
@@ -734,13 +748,17 @@ extension RevisionTree {
     /// - Returns: The identifiers of the new nodes, in the order of `nodes`.
     /// - Throws: ``LoreError`` if the library can't add the nodes,
     ///   such as ``LoreError/Code/invalidArguments``
-    ///   for a name that the directory already has.
+    ///   for a name that the directory already has
+    ///   or a parent that isn't an earlier node in `nodes`,
+    ///   or with ``LoreError/Code/invalidArguments``
+    ///   for a parent index outside `nodes` or a negative size.
     @discardableResult
     public func add(_ nodes: [NewNode]) async throws -> [NodeID] {
         for node in nodes {
-            if case .entry(let index) = node.parent, !(0 ..< nodes.count).contains(index) {
+            if case .entry(let index) = node.parent, !nodes.indices.contains(index) {
                 throw LoreError(code: .invalidArguments, message: "No new node has the index \(index).")
             }
+            try RevisionTree.checkSize(node.size)
         }
         let added = try await perform(
             lore_revision_tree_add_async,
@@ -759,7 +777,7 @@ extension RevisionTree {
                     entries[index].name = arena.string(node.name)
                     entries[index].kind = node.kind.rawValue
                     entries[index].mode = node.mode
-                    entries[index].size = UInt64(clamping: node.size)
+                    entries[index].size = UInt64(node.size)
                     if let address = node.address {
                         entries[index].address = address.libraryValue
                     }
@@ -795,12 +813,17 @@ extension RevisionTree {
     /// with ``StagedAction/delete`` until the commit,
     /// and adding a node of the same kind with the same name
     /// to the same directory restores it.
-    /// A node that the tree added since it was loaded is removed at once.
+    /// Restoring a directory doesn't restore its contents:
+    /// they stay deleted until you add each of them back.
+    /// A node that the tree added since it was loaded is removed at once,
+    /// and adding it back makes a new node.
     ///
     /// - Parameter nodes: The nodes to delete.
     /// - Returns: The number of nodes deleted, including the nodes in deleted directories.
     /// - Throws: ``LoreError`` if the library can't delete the nodes,
-    ///   such as ``LoreError/Code/invalidArguments`` for the root directory.
+    ///   such as ``LoreError/Code/invalidArguments`` for the root directory
+    ///   or for a node inside a directory that `nodes` also deletes.
+    ///   The library then deletes none of the nodes.
     @discardableResult
     public func delete(_ nodes: [NodeID]) async throws -> Int {
         let counts = try await perform(
@@ -831,8 +854,12 @@ extension RevisionTree {
     ///
     /// - Parameter modifications: The files and their new content.
     /// - Throws: ``LoreError`` if the library can't modify the files,
-    ///   such as ``LoreError/Code/invalidArguments`` for a node that isn't a file.
+    ///   such as ``LoreError/Code/invalidArguments`` for a node that isn't a file,
+    ///   or with ``LoreError/Code/invalidArguments`` for a negative size.
     public func modify(_ modifications: [Modification]) async throws {
+        for modification in modifications {
+            try RevisionTree.checkSize(modification.size)
+        }
         _ = try await perform(
             lore_revision_tree_modify_async,
             configure: { (arguments: UnsafeMutablePointer<lore_revision_tree_modify_args_t>, handle, arena) in
@@ -842,7 +869,7 @@ extension RevisionTree {
                     entries[index].entry_id = UInt64(index + 1)
                     entries[index].node_id = modification.node.rawValue
                     entries[index].mode = modification.mode
-                    entries[index].size = UInt64(clamping: modification.size)
+                    entries[index].size = UInt64(modification.size)
                     entries[index].address = modification.address.libraryValue
                 }
                 arguments.pointee.entries = lore_revision_tree_modify_entry_array_t(
@@ -893,12 +920,18 @@ extension RevisionTree {
 
 extension RevisionTree {
     /// Returns the metadata values for keys
-    /// that the next commit records.
+    /// that the tree holds for the next commit,
+    /// which are the values that you set with ``setMetadata(_:)``.
+    ///
+    /// The values that ``commit(message:)`` adds,
+    /// such as the branch and the time,
+    /// aren't among them.
     ///
     /// - Parameters:
     ///   - keys: The metadata keys.
     ///   - includingLoadedRevision: Whether to read a key that the tree has no value for
     ///     from the revision that the tree was loaded from.
+    ///     The commit doesn't record those values.
     /// - Returns: The values, by key, without the keys that have no value.
     /// - Throws: ``LoreError`` if the library can't read the metadata.
     public func metadata(
@@ -917,13 +950,15 @@ extension RevisionTree {
     }
 
     /// Returns the metadata value for a key
-    /// that the next commit records.
+    /// that the tree holds for the next commit,
+    /// which is the value that you set with ``setMetadata(_:)``.
     ///
     /// - Parameters:
     ///   - key: The metadata key.
     ///   - includingLoadedRevision: Whether to read the key from the revision
     ///     that the tree was loaded from
     ///     if the tree has no value for it.
+    ///     The commit doesn't record that value.
     /// - Returns: The value, or `nil` if there's no value for the key.
     /// - Throws: ``LoreError`` if the library can't read the metadata.
     public func metadata(forKey key: String, includingLoadedRevision: Bool = false) async throws -> MetadataValue? {
@@ -935,7 +970,9 @@ extension RevisionTree {
     /// The tree keeps the values in memory until the commit.
     /// The commit records only the values that you set,
     /// none from the revision that the tree was loaded from,
-    /// and adds the branch and the time if you don't set them.
+    /// and adds the branch, the time,
+    /// and the identity from the repository's options or configuration
+    /// if you don't set them; see ``commit(message:)``.
     /// Unlike ``Repository/setRevisionMetadata(_:)``,
     /// this method sets values of every type,
     /// including ``MetadataValue/binary(_:)``
@@ -1081,38 +1118,47 @@ extension RevisionTree {
     ///
     /// The commit records the metadata that you set with ``setMetadata(_:)``,
     /// the branch and the time,
-    /// and the identity from the repository's options or configuration
-    /// as `created-by` and `committed-by` if you don't set them.
+    /// and, as `created-by` and `committed-by` if you don't set them,
+    /// the identity in the repository's ``Repository/Options/identity``
+    /// or else in its configuration.
+    /// The library doesn't record an identity for a tree commit,
+    /// so this method sets those values before it commits.
+    /// Because they count as metadata to commit,
+    /// a tree without edits commits a revision with the same files
+    /// whenever there's an identity.
+    ///
     /// The tree then holds the new revision:
     /// its node identifiers stay valid,
     /// its metadata for the next commit is empty,
     /// and later edits commit on top of it.
-    /// If the commit fails, the tree keeps its edits and metadata,
+    /// If the commit fails, the tree keeps its edits and its metadata,
+    /// including `message` and the identity values that this method set,
     /// so you can fix the problem and commit again.
     ///
     /// - Parameter message: The commit message,
     ///   or `nil` to use the `message` value that you set, if any.
     /// - Returns: The new revision, with its metadata.
     /// - Throws: ``LoreError`` if the library can't commit the tree.
-    ///   Lore 0.11.0 reports a tree without edits or metadata to commit,
-    ///   and a branch whose latest revision is no longer the one that the tree held,
+    ///   Lore 0.11.0 reports a branch whose latest revision is no longer the one that the tree held,
+    ///   and a tree without edits, metadata, a message, or an identity,
     ///   with ``LoreError/Code/internal``.
     @discardableResult
     public func commit(message: String? = nil) async throws -> Revision {
         let repository = repository
         let repositoryID = repositoryID
-        let identity: String?
-        if let configured = repository.options.identity {
-            identity = configured
-        } else {
-            identity = try await repository.configurationValue(forKey: .identity)
-        }
         return try await withHandle { handle in
-            // The library records the identity of the user
-            // only for operations on a working directory.
             var values: [String: MetadataValue] = [:]
             if let message {
                 values["message"] = .string(message)
+            }
+            // Lore 0.11.0 records the identity of the user
+            // only for operations on a working directory,
+            // although the header says that a tree commit records it.
+            let identity: String?
+            if let configured = repository.options.identity {
+                identity = configured
+            } else {
+                identity = try await repository.configurationValue(forKey: .identity)
             }
             if let identity, !identity.isEmpty {
                 let keys = ["created-by", "committed-by"]
@@ -1152,6 +1198,13 @@ extension RevisionTree {
 extension RevisionTree {
     /// The node identifier that the library reads as "none".
     fileprivate static let invalidNode: UInt32 = 0xFFFF_FFFF
+
+    /// Checks that a content size isn't negative.
+    fileprivate static func checkSize(_ size: Int) throws {
+        guard size >= 0 else {
+            throw LoreError(code: .invalidArguments, message: "The size must be at least 0, not \(size).")
+        }
+    }
 
     /// The error that the methods of a closed tree throw.
     static let closedError = LoreError(code: .invalidArguments, message: "The revision tree is closed.")
