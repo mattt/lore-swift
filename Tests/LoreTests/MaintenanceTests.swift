@@ -53,11 +53,11 @@ import Testing
         #expect(dump.nodes[1].parentID == directory.id)
         #expect(directory.siblingID == file.id)
 
-        #expect(try await repository.stateDump(maximumDepth: 1).nodes.map(\.path) == ["dir/", "a.txt"])
-        #expect(try await repository.stateDump(maximumDepth: 2).nodes.count == 3)
+        #expect(try await repository.stateDump(depthLimit: 1).nodes.map(\.path) == ["dir/", "a.txt"])
+        #expect(try await repository.stateDump(depthLimit: 2).nodes.count == 3)
         for depth in [0, -1] {
             let error = await #expect(throws: LoreError.self) {
-                try await repository.stateDump(maximumDepth: depth)
+                try await repository.stateDump(depthLimit: depth)
             }
             #expect(error?.code == .invalidArguments)
         }

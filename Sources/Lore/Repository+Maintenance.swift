@@ -60,7 +60,7 @@ extension Repository {
 // MARK: - State dumps
 
 /// The tree of a repository's state,
-/// as ``Repository/stateDump(of:under:maximumDepth:)`` reports it for diagnosis.
+/// as ``Repository/stateDump(of:under:depthLimit:)`` reports it for diagnosis.
 public struct StateDump: Sendable, Hashable {
     /// A node of the tree.
     public struct Node: Sendable, Hashable {
@@ -133,7 +133,7 @@ extension Repository {
     ///     relative to the repository directory,
     ///     or `nil` for the whole tree.
     ///     The nodes include the node at the path.
-    ///   - maximumDepth: The number of levels of the tree to report,
+    ///   - depthLimit: The number of levels of the tree to report,
     ///     at least 1,
     ///     or `nil` for every level.
     /// - Returns: The state and its nodes.
@@ -141,17 +141,17 @@ extension Repository {
     ///   such as ``LoreError/Code/revisionNotFound``,
     ///   or ``LoreError/Code/nodeNotFound`` for a path that the state doesn't have,
     ///   or with ``LoreError/Code/invalidArguments``
-    ///   if `maximumDepth` is less than 1.
+    ///   if `depthLimit` is less than 1.
     public func stateDump(
         of revision: RevisionSpecifier? = nil,
         under path: String? = nil,
-        maximumDepth: Int? = nil
+        depthLimit: Int? = nil
     ) async throws -> StateDump {
-        if let maximumDepth, maximumDepth < 1 {
+        if let depthLimit, depthLimit < 1 {
             // The library reads 0 as no limit.
             throw LoreError(
                 code: .invalidArguments,
-                message: "The maximum depth must be at least 1, not \(maximumDepth)."
+                message: "The depth limit must be at least 1, not \(depthLimit)."
             )
         }
         let events = try await perform(
@@ -159,7 +159,7 @@ extension Repository {
             configure: { (arguments: UnsafeMutablePointer<lore_repository_dump_args_t>, arena) in
                 arguments.pointee.revision = arena.string(revision?.rawValue)
                 arguments.pointee.path = arena.string(path)
-                arguments.pointee.max_depth = UInt(clamping: maximumDepth ?? 0)
+                arguments.pointee.max_depth = UInt(clamping: depthLimit ?? 0)
             },
             transform: StateDumpEvent.init
         )
