@@ -377,9 +377,16 @@ private final class SyntheticCall: @unchecked Sendable {
             }
         }
         #expect(failure?.code == .invalidArguments)
-        let thrown = await #expect(throws: LoreError.self) {
-            for try await _ in stream {}
+        // The time limit makes a stream that doesn't finish fail the test.
+        let thrown = try await withTimeLimit { () -> LoreError? in
+            do {
+                for try await _ in stream {}
+                return nil
+            } catch let error as LoreError {
+                return error
+            }
         }
+        #expect(thrown != nil)
         #expect(thrown == failure)
         #expect(channel.hasEnded)
     }
