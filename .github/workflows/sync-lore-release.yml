@@ -1,0 +1,53 @@
+name: Sync Lore Release
+
+on:
+  schedule:
+    - cron: "30 15 * * *" # Run every day
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Show the changes without creating the release, pushing, or opening the pull request
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: sync-lore-release
+  cancel-in-progress: false
+
+jobs:
+  sync-release:
+    if: github.repository == 'mattt/lore-swift' && !inputs.dry_run
+    runs-on: macos-26
+    timeout-minutes: 20
+    permissions:
+      actions: write # Start the CI workflow on the pull request's branch
+      contents: write # Create the liblore release and push the branch
+      pull-requests: write # Open the pull request
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Sync the Lore release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: Scripts/sync-lore-release.sh
+
+  dry-run:
+    if: github.repository == 'mattt/lore-swift' && inputs.dry_run
+    runs-on: macos-26
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Sync the Lore release (dry run)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: Scripts/sync-lore-release.sh --dry-run

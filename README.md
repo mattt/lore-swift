@@ -340,6 +340,21 @@ $ Scripts/run-integration-tests.sh
 
 ### Updating the Lore library
 
+The [Sync Lore Release](.github/workflows/sync-lore-release.yml) workflow
+checks for a new Lore release every day.
+When it finds one, it runs `Scripts/sync-lore-release.sh`,
+which checks the release assets
+against the SHA-256 digests that GitHub publishes for them,
+attaches a new XCFramework to a `liblore-<version>` release of this repository,
+and opens a pull request that updates the package to it.
+Run the workflow with `dry_run`,
+or run `Scripts/sync-lore-release.sh --dry-run`,
+to see the changes without publishing them.
+The workflow needs the repository setting
+that allows GitHub Actions to create pull requests.
+
+To update the library by hand:
+
 1. Set `LORE_VERSION` and the SHA-256 digests
    in `Scripts/build-xcframework.sh` and `Scripts/fetch-loreserver.sh`.
 2. Run `Scripts/build-xcframework.sh`,
