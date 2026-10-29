@@ -72,7 +72,7 @@ import Testing
         #expect(a.kind == .file)
         #expect(a.size == 12)
         #expect(a.localSize == 8)
-        #expect(a.isModified && !a.isAdded && !a.isDeleted && !a.isConflicted)
+        #expect(a.isModified && !a.isAdded && !a.isDeleted)
         #expect(byPath["b.txt"]?.isDeleted == true)
         #expect(byPath["c.txt"]?.isAdded == true)
 

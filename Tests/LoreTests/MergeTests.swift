@@ -350,10 +350,6 @@ let conflictMarkers = "<<<<<<< ours\nmain\n||||||| original\nbase\n=======\nfeat
         #expect(status.files.first { $0.path == "auto.txt" }?.conflictResolution == .merged)
 
         try await repository.resolveConflicts(in: ["a.txt"], keeping: .mine)
-        // The file information doesn't report the conflicts of a merge in progress.
-        let info = try await repository.fileInfo(of: ["a.txt", "auto.txt", "b.txt"])
-        #expect(info.count == 3)
-        #expect(info.allSatisfy { !$0.isConflicted })
         let error = await #expect(throws: LoreError.self) {
             try await repository.commit(message: "Merge feature")
         }

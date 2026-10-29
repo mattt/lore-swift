@@ -42,14 +42,6 @@ public struct FileInfo: Sendable, Hashable {
 
     /// A Boolean value that indicates whether the entry was deleted.
     public var isDeleted: Bool
-
-    /// A Boolean value that indicates whether the library reports
-    /// the entry as in conflict.
-    ///
-    /// Lore 0.12.0 reports `false` for the files of a merge in progress,
-    /// including files whose conflicts aren't resolved;
-    /// ``FileStatus/isConflicted`` reports those conflicts.
-    public var isConflicted: Bool
 }
 
 /// The differences in the content of one file, as a unified diff.
@@ -301,8 +293,7 @@ extension Repository {
                     localSize: Int(clamping: data.local_size),
                     isAdded: Bool(data.flag_added),
                     isModified: Bool(data.flag_modified),
-                    isDeleted: Bool(data.flag_deleted),
-                    isConflicted: Bool(data.flag_conflict)
+                    isDeleted: Bool(data.flag_deleted)
                 )
             }
         )
