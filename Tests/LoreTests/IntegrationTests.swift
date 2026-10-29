@@ -248,6 +248,19 @@ import Testing
         #expect(try await clone.branches().map(\.name) == ["main", "main"])
     }
 
+    @Test func findRevisionSearchesFromTheLatestRevisionOnTheServer() async throws {
+        let (alice, bob) = try await makeClones()
+        try bob.write("bob\n", to: "a.txt")
+        try await bob.stage(["a.txt"])
+        let pushed = try await bob.commit(message: "Bob")
+        try await bob.push()
+
+        // Alice hasn't synced, so her current revision is the first one.
+        #expect(try await alice.revision().number == 1)
+        #expect(try await alice.findRevision(withMetadataKey: "message", value: "Bob")?.id == pushed.id)
+        #expect(try await alice.findRevision(numbered: 2)?.id == pushed.id)
+    }
+
     @Test func obliterateRemovesContentFromTheServer() async throws {
         let (repository, url) = try await makePublishedRepository()
         let stored = try #require(try await repository.storedContent(of: "a.txt"))
