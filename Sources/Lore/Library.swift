@@ -100,16 +100,28 @@ extension Library {
         if status != 0 {
             throw LoreError(code: .init(rawValue: status))
         }
-        LogHandler.current.withLock { $0 = handler }
+        LogHandler.current.withLock { $0 = handler.map(LogHandler.init) }
     }
 }
 
 /// The process-wide handler for log events.
-enum LogHandler {
-    static let current = Mutex<(@Sendable (Library.LogEntry) -> Void)?>(nil)
+///
+/// The mutex holds the closure inside a structure.
+/// When the mutex held the closure itself,
+/// each read with `withLock` nested the stored closure
+/// in more reabstraction thunks,
+/// and after many log events, releasing it overflowed the stack.
+struct LogHandler: Sendable {
+    static let current = Mutex<LogHandler?>(nil)
+
+    let handle: @Sendable (Library.LogEntry) -> Void
+
+    init(_ handle: @escaping @Sendable (Library.LogEntry) -> Void) {
+        self.handle = handle
+    }
 
     static func dispatch(_ data: lore_log_event_data_t) {
-        guard let handler = current.withLock({ $0 }),
+        guard let handler = current.withLock({ $0?.handle }),
             let level = Library.LogLevel(rawValue: Int(data.level.rawValue))
         else {
             return
