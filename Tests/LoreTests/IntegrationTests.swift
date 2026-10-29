@@ -248,6 +248,24 @@ import Testing
         #expect(try await clone.branches().map(\.name) == ["main", "main"])
     }
 
+    @Test func obliterateRemovesContentFromTheServer() async throws {
+        let (repository, url) = try await makePublishedRepository()
+        let stored = try #require(try await repository.storedContent(of: "a.txt"))
+        let result = try await repository.obliterate("a.txt")
+        #expect(result.address == stored.address)
+
+        // The pushed revision no longer has the content of its file.
+        let error = await #expect(throws: LoreError.self) {
+            try await Repository.clone(
+                from: url,
+                to: temporaryRepositoryPath("obliterated-clone"),
+                options: Repository.Options(identity: "bob@example.com")
+            )
+        }
+        #expect(error?.code == .internal)
+        #expect(error?.message.contains(stored.address.description) == true)
+    }
+
     /// Returns a published repository and a clone of it.
     private func makeClones() async throws -> (alice: Repository, bob: Repository) {
         let (alice, url) = try await makePublishedRepository()

@@ -145,6 +145,8 @@ extension LoreError.Code {
     public static let repositoryAlreadyExists = Self(rawValue: 58)
     /// A resource was not found.
     public static let notFound = Self(rawValue: 79)
+    /// No store holds content at an address.
+    public static let addressNotFound = Self(rawValue: 80)
     /// A file was not found.
     public static let fileNotFound = Self(rawValue: 82)
     /// No file, directory, or link exists at a path.
