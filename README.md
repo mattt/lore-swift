@@ -315,7 +315,8 @@ so it must return promptly.
 | Links | `lore_link_add_async`, `lore_link_remove_async`, `lore_link_update_async`, `lore_link_list_async`, `lore_link_info_async`, `lore_link_list_staged_async` | `addLink(to:at:sourcePath:pinnedTo:creatingBranches:)`, `removeLink(at:)`, `updateLink(at:to:)`, `links()`, `linkInfo(at:)`, `stagedLinks()` |
 | Layers | `lore_layer_add_async`, `lore_layer_remove_async`, `lore_layer_list_async` | `addLayer(from:at:sourcePath:matchingMetadataKey:)`, `removeLayer(at:sourceRepository:deletingUntrackedFiles:discardingLocalChanges:)`, `layers()` |
 
-The binding doesn't cover `lore_set_allocator`.
+The binding doesn't cover `lore_set_allocator` or `lore_event_type`,
+whose result it reads from each event's tag.
 Only `RevisionTree.setMetadata(_:)` can set binary or address metadata values.
 
 ## Development
