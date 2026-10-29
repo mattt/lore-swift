@@ -35,6 +35,7 @@ Add the `Lore` product to your target:
 ### Creating a repository
 
 ```swift
+import Foundation
 import Lore
 
 let repository = try await Repository.create(
