@@ -13,9 +13,13 @@ extension Repository {
     ///
     /// Lore checks each path in the working directory and the current revision:
     /// a file in both is modified,
+    /// which a status reports as ``FileAction/keep``,
     /// a file only in the working directory is added,
     /// and a file only in the current revision is deleted.
-    /// It ignores a path that is in neither,
+    /// A file in neither loses the mark of an earlier addition,
+    /// and otherwise Lore ignores it.
+    /// Lore also skips a path that the repository's ignore or view filters exclude,
+    /// such as a path that matches a pattern in `.loreignore`,
     /// a path outside the repository directory,
     /// and a path in the repository's `.lore` directory.
     /// Marking a file doesn't stage it;

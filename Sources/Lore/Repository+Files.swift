@@ -105,8 +105,17 @@ public struct LineAttribution: Sendable, Hashable {
         /// A version of the file that the audit had to compare
         /// isn't in the local store,
         /// and the audit reads only the local store.
+        ///
+        /// In Lore 0.11.0,
+        /// after ``Repository/obliterate(contentAt:)`` removes an earlier version
+        /// from the local store of an offline repository,
+        /// an audit reports every line with this outcome.
         public static let contentUnavailable = Self(rawValue: LORE_FILE_AUDIT_OUTCOME_CONTENT_UNAVAILABLE.rawValue)
         /// An error ended the audit before it reached the lines.
+        ///
+        /// ``Repository/audit(_:revision:revisionLimit:ignoringTrailingWhitespace:ignoringWhitespaceChanges:)``
+        /// throws the error instead of returning the ranges,
+        /// so it never returns this outcome.
         public static let unresolved = Self(rawValue: LORE_FILE_AUDIT_OUTCOME_UNRESOLVED.rawValue)
     }
 
@@ -154,9 +163,11 @@ extension Repository {
     ///   such as ``LoreError/Code/fileNotFound``
     ///   for a file that the revision doesn't have,
     ///   ``LoreError/Code/addressNotFound``
-    ///   for a version of the file that ``obliterate(_:)`` removed,
+    ///   if ``obliterate(_:)`` removed the content of the file at `revision`,
     ///   or ``LoreError/Code/invalidArguments``
     ///   if `revisionLimit` is less than 1.
+    ///   When an error ends the audit after it resolved some lines,
+    ///   the method throws the error and discards those lines.
     public func audit(
         _ path: String,
         revision: RevisionSpecifier? = nil,
