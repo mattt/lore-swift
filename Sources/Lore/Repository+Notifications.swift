@@ -64,8 +64,10 @@ extension Repository {
     /// when the stream and its iterator are released,
     /// or when the server ends the subscription,
     /// which finishes the stream.
-    /// If the library ends the subscription with an error,
-    /// the stream throws it as ``LoreError``.
+    /// The type of the stream allows an error,
+    /// but in Lore 0.12.0 a subscription that the server ends,
+    /// such as when the server stops,
+    /// finishes the stream without one.
     /// The library keeps one subscription for each repository in a process,
     /// so every stream for the repository,
     /// including the streams of its clones in the same process,
@@ -350,6 +352,16 @@ final class NotificationChannel: Sendable {
         let arena = Arena()
         let globals = repository.globals(in: arena)
         let arguments = arena.allocate(lore_notification_subscribe_args_t.self)
+        try await subscribe { callback in
+            withExtendedLifetime(arena) {
+                lore_notification_subscribe_async(globals, arguments, callback)
+            }
+        }
+    }
+
+    /// Subscribes with a function that starts the library call,
+    /// which tests replace with one that sends events of their own.
+    func subscribe(start: (lore_event_callback_config_t) -> Void) async throws {
         try await Lore.subscribe(
             onEvent: { [self] event in
                 guard let notification = RepositoryNotification(event) else {
@@ -361,11 +373,7 @@ final class NotificationChannel: Sendable {
                 }
             },
             onEnd: { [self] error in end(error) },
-            start: { callback in
-                withExtendedLifetime(arena) {
-                    lore_notification_subscribe_async(globals, arguments, callback)
-                }
-            }
+            start: start
         )
     }
 
