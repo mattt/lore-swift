@@ -54,6 +54,17 @@ func isolateGlobalDirectory() -> String {
     return directory
 }
 
+/// Returns a path to an absolute path, relative to the current directory of the process.
+func relativePath(to target: String) -> String {
+    let base = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).standardizedFileURL.pathComponents
+    let parts = URL(fileURLWithPath: target).standardizedFileURL.pathComponents
+    var common = 0
+    while common < min(base.count, parts.count), base[common] == parts[common] {
+        common += 1
+    }
+    return (Array(repeating: "..", count: base.count - common) + parts[common...]).joined(separator: "/")
+}
+
 /// Returns a new, unique path in the scratch directory for something other than a repository,
 /// such as a shared store.
 func temporaryPath(_ label: String) -> String {

@@ -7,7 +7,10 @@ import Foundation
 /// A shared store belongs to one server.
 /// It's a directory named `shared_store`
 /// inside a directory for the server
-/// that the library names after the server's URL.
+/// that the library names after the server's URL without its scheme,
+/// with `_` for each `:` and `/`,
+/// such as `stores/127.0.0.1_41337/shared_store`
+/// for a store that ``create(for:in:makingDefault:options:)`` creates in `stores`.
 /// The library records every shared store that it creates
 /// in a registry in the user's Lore data directory,
 /// and the store that it uses by default for each server
@@ -31,10 +34,15 @@ public struct SharedStore: Sendable, Hashable {
     }
 
     /// The URL of the server that the store belongs to,
+    /// such as `lore://127.0.0.1:41337`,
     /// or an empty string for the store of offline repositories.
     public var remoteURL: String
 
-    /// The path of the directory that holds the store's `shared_store` directory.
+    /// The path of the store's `shared_store` directory.
+    ///
+    /// Pass the directory two levels up,
+    /// or one level up for the store of offline repositories,
+    /// to ``Repository/StoreLocation/shared(in:)``.
     public var path: String
 
     /// The checkouts that use the store,
@@ -48,8 +56,9 @@ extension SharedStore {
         /// The shared store that the library uses by default for a server.
         public struct DefaultStore: Sendable, Hashable {
             /// The URL of the server without its scheme,
-            /// such as `127.0.0.1:41337`.
-            public var remoteURL: String
+            /// such as `127.0.0.1:41337`,
+            /// as the configuration records it.
+            public var server: String
 
             /// The path of the store's `shared_store` directory.
             public var path: String
@@ -82,11 +91,12 @@ extension SharedStore {
     ///     such as `lore://127.0.0.1:41337`.
     ///   - directory: The directory to create the store in,
     ///     or `nil` for the default directory for the server.
+    ///     A relative path is relative to the current directory of the process.
     ///   - makingDefault: Whether to record the store
     ///     as the server's default store in the user's global Lore configuration.
     ///   - options: The options for the call,
     ///     such as whether to connect to the server.
-    /// - Returns: The path of the new store's `shared_store` directory.
+    /// - Returns: The new store.
     /// - Throws: ``LoreError`` if the library can't create the store,
     ///   such as when a store for the server already exists in the directory,
     ///   or ``LoreError/Code/invalidArguments`` for an empty server URL.
@@ -96,10 +106,13 @@ extension SharedStore {
         in directory: String? = nil,
         makingDefault: Bool = false,
         options: Repository.Options = Repository.Options()
-    ) async throws -> String {
+    ) async throws -> SharedStore {
         if remoteURL.isEmpty {
             throw LoreError(code: .invalidArguments, message: "The server URL is empty.")
         }
+        // The library resolves a relative directory against the working directory of the call,
+        // which is empty here.
+        let directory = directory.map(Repository.absolutePath(of:))
         let paths = try await Repository(path: "", options: options).perform(
             lore_shared_store_create_async,
             configure: { (arguments: UnsafeMutablePointer<lore_shared_store_create_args_t>, arena) in
@@ -117,7 +130,12 @@ extension SharedStore {
         guard let path = paths.last else {
             throw LoreError.missingEvent("the shared store")
         }
-        return path
+        // The library records the URL without a trailing slash.
+        var url = Substring(remoteURL)
+        if url.hasSuffix("/") {
+            url = url.dropLast()
+        }
+        return SharedStore(remoteURL: String(url), path: path, instances: [])
     }
 
     /// Returns the shared stores in the library's registry.
@@ -206,9 +224,12 @@ extension SharedStore {
             item.instance_ids.ptr.map {
                 UnsafeBufferPointer(start: $0, count: Int(item.instance_ids.count)).map(InstanceID.init)
             } ?? []
+        // The registry records the directory that holds the store.
         self.init(
             remoteURL: String(item.remote_url),
-            path: String(item.store_path),
+            path: URL(fileURLWithPath: String(item.store_path), isDirectory: true)
+                .appending(path: "shared_store", directoryHint: .isDirectory)
+                .standardizedFileURL.path,
             instances: zip(ids, paths).map { Instance(id: $0, path: $1) }
         )
     }
@@ -225,7 +246,7 @@ extension SharedStore.Configuration {
         for index in remoteURLs.indices where index < paths.count {
             defaultStores.append(
                 DefaultStore(
-                    remoteURL: remoteURLs[index],
+                    server: remoteURLs[index],
                     path: paths[index],
                     exists: index < exists.count && exists[index] != 0
                 )
@@ -254,12 +275,15 @@ extension Repository {
         ///
         /// - Parameter directory: The directory that holds the store
         ///   inside a directory for the server,
+        ///   as you pass it to ``SharedStore/create(for:in:makingDefault:options:)``,
         ///   or `nil` for the server's default store.
+        ///   A relative path is relative to the current directory of the process.
         ///   The store of an offline repository,
         ///   which has no server,
         ///   is directly in the directory.
-        ///   When the library creates a default store,
-        ///   it records it as the default in the user's global Lore configuration.
+        ///   When the library creates a server's default store for `nil`,
+        ///   it records the store as the server's default
+        ///   in the user's global Lore configuration.
         case shared(in: String? = nil)
     }
 }
@@ -278,7 +302,9 @@ extension Repository.StoreLocation {
             mode = LORE_SHARED_STORE_MODE_DISABLED
         case .shared(let directory):
             mode = LORE_SHARED_STORE_MODE_ENABLED
-            path = arena.string(directory)
+            // The library resolves a relative directory against the working directory of the call,
+            // which is the new checkout.
+            path = arena.string(directory.map(Repository.absolutePath(of:)))
         }
     }
 }

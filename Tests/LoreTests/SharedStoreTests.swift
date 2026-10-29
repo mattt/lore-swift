@@ -17,15 +17,16 @@ import Testing
 
     @Test func createRecordsTheStoreInTheRegistry() async throws {
         let directory = temporaryPath("shared-stores")
-        let path = try await SharedStore.create(for: remoteURL, in: directory, options: offline)
-        let serverDirectory = "\(directory)/shared-store.invalid_43000"
-        #expect(path == "\(serverDirectory)/shared_store")
-        #expect(FileManager.default.fileExists(atPath: "\(path)/shared_store.toml"))
+        let store = try await SharedStore.create(for: remoteURL, in: directory, options: offline)
+        #expect(store.remoteURL == remoteURL)
+        #expect(store.path == "\(directory)/shared-store.invalid_43000/shared_store")
+        #expect(store.instances.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: "\(store.path)/shared_store.toml"))
 
-        let stores = try await SharedStore.all().filter { $0.path.hasPrefix(directory) }
-        #expect(stores == [SharedStore(remoteURL: remoteURL, path: serverDirectory, instances: [])])
+        // The registry reports the store as `create` does.
+        #expect(try await SharedStore.all().filter { $0.path.hasPrefix(directory) } == [store])
         let withInstances = try await SharedStore.all(includingInstances: true).filter { $0.path.hasPrefix(directory) }
-        #expect(withInstances == stores)
+        #expect(withInstances == [store])
 
         let again = await #expect(throws: LoreError.self) {
             try await SharedStore.create(for: remoteURL, in: directory, options: offline)
@@ -35,6 +36,15 @@ import Testing
             try await SharedStore.create(for: "", in: directory, options: offline)
         }
         #expect(empty?.code == .invalidArguments)
+    }
+
+    @Test func createResolvesARelativeDirectoryAgainstTheCurrentDirectory() async throws {
+        let directory = temporaryPath("shared-stores")
+        let relative = relativePath(to: directory)
+        #expect(!relative.hasPrefix("/"))
+        let store = try await SharedStore.create(for: remoteURL, in: relative, options: offline)
+        #expect(store.path == "\(directory)/shared-store.invalid_43000/shared_store")
+        #expect(FileManager.default.fileExists(atPath: "\(store.path)/shared_store.toml"))
     }
 
     @Test func createConnectsToTheServerUnlessOffline() async throws {
@@ -74,6 +84,7 @@ import Testing
             try await SharedStore.all(includingInstances: true).first { $0.path.hasPrefix(directory) }
         )
         #expect(store.remoteURL == "")
+        #expect(store.path == "\(directory)/shared_store")
         let firstInstance = try #require(try await first.instances().first)
         let secondInstance = try #require(try await second.instances().first)
         #expect(
@@ -84,26 +95,32 @@ import Testing
         )
     }
 
-    @Test func localStoreLocation() async throws {
+    @Test func sharedStoreInARelativeDirectory() async throws {
+        let directory = temporaryPath("shared-stores")
+        let relative = relativePath(to: directory)
         let repository = try await Repository.create(
             at: temporaryRepositoryPath(),
-            name: "local",
-            store: .local,
+            name: "shared",
+            store: .shared(in: relative),
             options: offline
         )
-        #expect(FileManager.default.fileExists(atPath: "\(repository.path)/.lore/immutable"))
+        // The directory is relative to the current directory, not to the new checkout.
+        #expect(FileManager.default.fileExists(atPath: "\(directory)/shared_store/shared_store.toml"))
+        #expect(!FileManager.default.fileExists(atPath: "\(repository.path)/\(relative)"))
+        #expect(!FileManager.default.fileExists(atPath: "\(repository.path)/.lore/immutable"))
     }
 
-    @Test func configurationRecordsDefaultsAndAutomaticUse() async {
+    @Test func storeLocationsAndTheGlobalConfiguration() async {
         await #expect(processExitsWith: .success) {
             let global = isolateGlobalDirectory()
             let offline = Repository.Options(identity: "test@example.com", isOffline: true)
+            let defaultDirectory = "\(global)/data/shared_store"
             #expect(
                 try await SharedStore.configuration()
                     == SharedStore.Configuration(isUsedAutomatically: false, defaultStores: [])
             )
 
-            let path = try await SharedStore.create(
+            let store = try await SharedStore.create(
                 for: "lore://shared-store.invalid:43000",
                 in: "\(global)/stores",
                 makingDefault: true,
@@ -111,30 +128,60 @@ import Testing
             )
             // A store in the default directory isn't a default unless you make it one.
             let other = try await SharedStore.create(for: "lore://other.invalid:43000", options: offline)
-            #expect(other == "\(global)/data/shared_store/other.invalid_43000/shared_store")
+            #expect(other.path == "\(defaultDirectory)/other.invalid_43000/shared_store")
+            let defaults = [
+                SharedStore.Configuration.DefaultStore(
+                    server: "shared-store.invalid:43000",
+                    path: store.path,
+                    exists: true
+                )
+            ]
+            #expect(try await SharedStore.configuration().defaultStores == defaults)
+
+            // A checkout that asks for the default store of a server
+            // makes the store and records it as the default.
+            // An offline repository has no server, so its server is the empty string.
+            let shared = try await Repository.create(
+                at: temporaryRepositoryPath(),
+                name: "shared",
+                store: .shared(),
+                options: offline
+            )
+            #expect(!FileManager.default.fileExists(atPath: "\(shared.path)/.lore/immutable"))
+            #expect(FileManager.default.fileExists(atPath: "\(defaultDirectory)/shared_store/shared_store.toml"))
             #expect(
-                try await SharedStore.configuration().defaultStores == [
-                    SharedStore.Configuration.DefaultStore(
-                        remoteURL: "shared-store.invalid:43000",
-                        path: path,
-                        exists: true
+                Set(try await SharedStore.configuration().defaultStores)
+                    == Set(
+                        defaults + [
+                            SharedStore.Configuration.DefaultStore(
+                                server: "",
+                                path: "\(defaultDirectory)/shared_store",
+                                exists: true
+                            )
+                        ]
                     )
-                ]
             )
 
             try await SharedStore.setUsedAutomatically(true)
             #expect(try await SharedStore.configuration().isUsedAutomatically)
             let text = try String(contentsOfFile: "\(global)/config/config.toml", encoding: .utf8)
             #expect(text.contains("use_shared_store_automatically = true"))
-            // A new repository now uses a shared store in the default directory.
-            let repository = try await makeOfflineRepository()
-            #expect(!FileManager.default.fileExists(atPath: "\(repository.path)/.lore/immutable"))
-            #expect(FileManager.default.fileExists(atPath: "\(global)/data/shared_store/shared_store"))
+            // A new repository now uses the default shared store,
+            // unless it asks for a local store.
+            let automatic = try await makeOfflineRepository()
+            #expect(!FileManager.default.fileExists(atPath: "\(automatic.path)/.lore/immutable"))
+            let local = try await Repository.create(
+                at: temporaryRepositoryPath(),
+                name: "local",
+                store: .local,
+                options: offline
+            )
+            #expect(FileManager.default.fileExists(atPath: "\(local.path)/.lore/immutable"))
 
             try await SharedStore.setUsedAutomatically(false)
             #expect(try await SharedStore.configuration().isUsedAutomatically == false)
-            let local = try await makeOfflineRepository()
-            #expect(FileManager.default.fileExists(atPath: "\(local.path)/.lore/immutable"))
+            let unshared = try await makeOfflineRepository()
+            #expect(FileManager.default.fileExists(atPath: "\(unshared.path)/.lore/immutable"))
         }
     }
 }

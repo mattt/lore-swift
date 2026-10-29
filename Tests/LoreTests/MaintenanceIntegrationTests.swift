@@ -78,8 +78,8 @@ import Testing
             + String(serverURL.split(separator: "://").last ?? "")
             .replacingOccurrences(of: ":", with: "_")
             .replacingOccurrences(of: "/", with: "_")
-        let path = try await SharedStore.create(for: serverURL, in: directory)
-        #expect(path == "\(serverDirectory)/shared_store")
+        let created = try await SharedStore.create(for: serverURL, in: directory)
+        #expect(created.path == "\(serverDirectory)/shared_store")
 
         let (repository, url) = try await makePublishedRepository("shared", store: .shared(in: directory))
         let removed = try await Repository.clone(
@@ -103,7 +103,7 @@ import Testing
             try await SharedStore.all(includingInstances: true).first { $0.path.hasPrefix(directory) }
         )
         #expect(store.remoteURL == serverURL)
-        #expect(store.path == serverDirectory)
+        #expect(store.path == created.path)
         #expect(Set(store.instances.map(\.id)) == Set(instances.map(\.id)))
 
         try FileManager.default.removeItem(atPath: removed.path)
@@ -117,6 +117,8 @@ import Testing
 
         let pruned = try await repository.pruneStaleInstances()
         #expect(Set(pruned) == Set(stale))
+        // Pruning removes registrations and no files.
+        #expect(try emptied.read("a.txt") == "hello\n")
         #expect(try await repository.instances().map(\.path) == [repository.absolutePath])
         #expect(try await repository.pruneStaleInstances().isEmpty)
     }
