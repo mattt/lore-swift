@@ -234,7 +234,7 @@ import Testing
         try await repository.unprotectBranch(named: "main")
         #expect(try await repository.push().revisionNumber == 2)
         let info = try await repository.branchInfo()
-        #expect(info.remoteLatestRevision == info.latestRevision)
+        #expect(info.remoteRevision == info.latestRevision)
     }
 
     @Test func archivedBranchesLeaveTheServerListing() async throws {

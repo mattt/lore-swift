@@ -82,7 +82,7 @@ import Testing
         #expect(info.name == "feature")
         #expect(info.category == "work")
         #expect(info.latestRevision == feature.id)
-        #expect(info.remoteLatestRevision == nil)
+        #expect(info.remoteRevision == nil)
         #expect(info.parentID == main[0].branchID)
         #expect(info.branchPoint == main[1].id)
         #expect(info.creator == "test@example.com")

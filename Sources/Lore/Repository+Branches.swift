@@ -58,7 +58,7 @@ public struct BranchInfo: Sendable, Hashable, Identifiable {
 
     /// The latest revision of the branch on the server,
     /// or `nil` if it's unknown.
-    public var remoteLatestRevision: RevisionID?
+    public var remoteRevision: RevisionID?
 
     /// The identifier of the branch that the branch was created from,
     /// or `nil` for a branch that wasn't created from another branch.
@@ -215,7 +215,7 @@ extension Repository {
                     name: String(data.name),
                     category: String(data.category),
                     latestRevision: RevisionID(data.latest),
-                    remoteLatestRevision: RevisionID(data.latest_remote),
+                    remoteRevision: RevisionID(data.latest_remote),
                     parentID: BranchID(data.parent),
                     branchPoint: RevisionID(data.branch_point),
                     creator: String(data.creator),
