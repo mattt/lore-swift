@@ -266,6 +266,9 @@ import Testing
         let stored = try #require(try await repository.storedContent(of: "a.txt"))
         let result = try await repository.obliterate("a.txt")
         #expect(result.address == stored.address)
+        // Online, the local store removed the fragment but no payload.
+        #expect(result.fragmentCount == 1)
+        #expect(result.payloadCount == 0)
 
         // The pushed revision no longer has the content of its file.
         let error = await #expect(throws: LoreError.self) {

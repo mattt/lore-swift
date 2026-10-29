@@ -1,4 +1,5 @@
 import CLore
+import Foundation
 
 /// The content hash of a file.
 public struct FileHash: Sendable, Hashable {
@@ -75,9 +76,10 @@ extension Repository {
 
     /// Returns how the repository's store holds the content of a file.
     ///
-    /// The content is that of the version of the file in the staged changes,
-    /// or in the current revision if the file has no staged change,
+    /// The content is that of the version of the file in the current revision,
     /// not the file in the working directory.
+    /// In Lore 0.11.0,
+    /// that's also the case for a file whose change is staged.
     ///
     /// - Parameter path: The path of the file, relative to the repository directory.
     /// - Returns: The stored content,
@@ -143,8 +145,10 @@ extension Repository {
     ///   - path: The path of the file in the repository,
     ///     relative to the repository directory.
     ///   - revision: The revision to read,
-    ///     or `nil` for the version of the file in the staged changes,
-    ///     or in the current revision if the file has no staged change.
+    ///     or `nil` for the current revision.
+    ///     In Lore 0.11.0,
+    ///     `nil` reads the current revision's version
+    ///     even for a file whose change is staged.
     ///   - destination: The path of the file to write,
     ///     relative to the repository directory unless it's absolute.
     ///   - replacingExistingFile: Whether to replace a file at `destination`.
@@ -201,7 +205,8 @@ extension Repository {
         // to decide whether the call writes inside the repository,
         // and rejects one inside the repository with error 19,
         // so the binding passes an absolute path.
-        let destination = destination.hasPrefix("/") ? destination : "\(path)/\(destination)"
+        let directory = URL(fileURLWithPath: absolutePath, isDirectory: true)
+        let destination = URL(fileURLWithPath: destination, relativeTo: directory).standardizedFileURL.path
         _ = try await perform(
             lore_file_write_async,
             force: replacingExistingFile,
@@ -219,10 +224,10 @@ extension Repository {
     ///
     /// Obliterating can't be undone.
     /// The library removes the content of the version of the file
-    /// in the staged changes,
-    /// or in the current revision if the file has no staged change,
-    /// from the local store,
+    /// in the current revision from the local store,
     /// and from the server unless the repository is offline.
+    /// In Lore 0.11.0,
+    /// that's also the version it removes for a file whose change is staged.
     /// Every revision whose file has that content keeps its record of the file,
     /// but no longer has its content:
     /// reading the file at such a revision,
@@ -232,7 +237,8 @@ extension Repository {
     /// Versions of the file with other content stay.
     ///
     /// The method also deletes the file from the working directory
-    /// and stages its deletion.
+    /// and stages its deletion,
+    /// which replaces a staged change to the file.
     /// In Lore 0.11.0,
     /// committing that deletion fails with ``LoreError/Code/internal``;
     /// ``unstage(_:)`` and ``stage(_:scanning:)`` the path again first.

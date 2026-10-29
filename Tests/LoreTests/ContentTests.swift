@@ -54,6 +54,81 @@ import Testing
         #expect(error?.code == .invalidArguments)
     }
 
+    @Test func storedContentOfCompressedContent() async throws {
+        let repository = try await makeOfflineRepository()
+        let data = Data(repeating: UInt8(ascii: "x"), count: 65536)
+        try data.write(to: URL(filePath: "\(repository.path)/large.txt"))
+        try await repository.stage(["large.txt"])
+        try await repository.commit(message: "Large")
+        let stored = try #require(try await repository.storedContent(of: "large.txt"))
+        #expect(stored.size == 65536)
+        #expect(stored.payloadSize > 0)
+        #expect(stored.payloadSize < 1024)
+    }
+
+    @Test func contentMethodsReadTheCurrentRevisionDespiteAStagedChange() async throws {
+        let repository = try await repositoryWithThreeVersions()
+        let committed = try #require(try await repository.storedContent(of: "a.txt"))
+        try repository.write("staged\n", to: "a.txt")
+        try await repository.stage(["a.txt"])
+        try repository.write("unstaged\n", to: "a.txt")
+
+        #expect(try await repository.storedContent(of: "a.txt") == committed)
+        let destination = scratchFile()
+        try await repository.writeContents(of: "a.txt", to: destination)
+        #expect(try String(contentsOfFile: destination, encoding: .utf8) == "three\n")
+
+        // Obliterating removes the committed content.
+        let result = try await repository.obliterate("a.txt")
+        #expect(result.address == committed.address)
+        #expect(try await repository.storedContent(at: committed.address) == nil)
+        let error = await #expect(throws: LoreError.self) {
+            try await repository.writeContents(of: "a.txt", revision: "main@3", to: scratchFile())
+        }
+        #expect(error?.code == .addressNotFound)
+        let status = try await repository.status()
+        #expect(status.files.map(\.path) == ["a.txt"])
+        #expect(status.files.first?.action == .delete)
+        #expect(status.files.first?.isStaged == true)
+    }
+
+    @Test(arguments: [false, true])
+    func writeContentsRefusesADirectory(replacingExistingFile: Bool) async throws {
+        let repository = try await repositoryWithThreeVersions()
+        let directory = scratchFile()
+        try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+        try "sentinel\n".write(toFile: "\(directory)/sentinel.txt", atomically: true, encoding: .utf8)
+        let address = try #require(try await repository.storedContent(of: "a.txt")).address
+
+        let byPath = await #expect(throws: LoreError.self) {
+            try await repository.writeContents(of: "a.txt", to: directory, replacingExistingFile: replacingExistingFile)
+        }
+        #expect(byPath?.code == .invalidPath)
+        let byAddress = await #expect(throws: LoreError.self) {
+            try await repository.writeContents(at: address, to: directory, replacingExistingFile: replacingExistingFile)
+        }
+        #expect(byAddress?.code == .invalidPath)
+        #expect(try String(contentsOfFile: "\(directory)/sentinel.txt", encoding: .utf8) == "sentinel\n")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory) == ["sentinel.txt"])
+    }
+
+    @Test func writeContentsWithARelativeRepositoryPath() async throws {
+        let absolute = try await repositoryWithThreeVersions()
+        let currentDirectory = FileManager.default.currentDirectoryPath
+        let relativePath = try #require(
+            absolute.path.hasPrefix(currentDirectory + "/")
+                ? String(absolute.path.dropFirst(currentDirectory.count + 1)) : nil,
+            "The scratch directory isn't under the current directory, \(currentDirectory)."
+        )
+        let repository = Repository(path: relativePath, options: absolute.options)
+
+        try await repository.writeContents(of: "a.txt", revision: "main@1", to: "a-1.txt")
+        #expect(try absolute.read("a-1.txt") == "one\n")
+        let address = try #require(try await repository.storedContent(of: "b.txt")).address
+        try await repository.writeContents(at: address, to: "b-copy.txt")
+        #expect(try absolute.read("b-copy.txt") == "bee\n")
+    }
+
     @Test func storedContentOfMissingContent() async throws {
         let repository = try await repositoryWithThreeVersions()
         let unknown = try #require(
@@ -110,6 +185,7 @@ import Testing
         let result = try await repository.obliterate("a.txt")
         #expect(result.address == stored.address)
         #expect(result.fragmentCount == 1)
+        #expect(result.payloadCount == 1)
         #expect(!FileManager.default.fileExists(atPath: "\(repository.path)/a.txt"))
         let status = try await repository.status()
         #expect(status.files.map(\.path) == ["a.txt"])
@@ -156,6 +232,8 @@ import Testing
         let stored = try #require(try await repository.storedContent(of: "b.txt"))
         let result = try await repository.obliterate(contentAt: stored.address)
         #expect(result.address == stored.address)
+        #expect(result.fragmentCount == 1)
+        #expect(result.payloadCount == 1)
         #expect(try await repository.storedContent(at: stored.address) == nil)
         // The working directory and the staged changes don't change.
         #expect(try repository.read("b.txt") == "bee\n")
