@@ -4,6 +4,38 @@ import Testing
 
 @testable import Lore
 
+/// The error that ``withTimeLimit(_:_:)`` throws when the time runs out.
+struct TimeLimitExceeded: Error {}
+
+/// Runs an operation and throws ``TimeLimitExceeded`` if it doesn't end in time,
+/// so that a test that hangs fails instead of stalling the suite.
+///
+/// The operation runs in an unstructured task,
+/// which keeps running if the time runs out.
+func withTimeLimit<T: Sendable>(
+    _ limit: Duration = .seconds(10),
+    _ operation: @escaping @Sendable () async throws -> T
+) async throws -> T {
+    let pending = Mutex<CheckedContinuation<T, any Error>?>(nil)
+    @Sendable func finish(_ result: Result<T, any Error>) {
+        pending.withLock { $0.take() }?.resume(with: result)
+    }
+    return try await withCheckedThrowingContinuation { continuation in
+        pending.withLock { $0 = continuation }
+        Task {
+            do {
+                finish(.success(try await operation()))
+            } catch {
+                finish(.failure(error))
+            }
+        }
+        Task {
+            try? await Task.sleep(for: limit)
+            finish(.failure(TimeLimitExceeded()))
+        }
+    }
+}
+
 @Suite struct NotificationTests {
     @Test func offlineRepositoriesCannotSubscribe() async throws {
         let repository = try await makeOfflineRepository()
@@ -11,6 +43,175 @@ import Testing
             try await repository.notifications()
         }
         #expect(error?.code == .internal)
+    }
+}
+
+/// Tests of the order of subscribe and unsubscribe calls,
+/// with operations that stand in for the library's and that the tests hold open.
+@Suite struct NotificationSubscriptionsTests {
+    /// A signal that tasks wait for until it opens.
+    private final class Gate: Sendable {
+        private let state = Mutex<(isOpen: Bool, waiters: [CheckedContinuation<Void, Never>])>((false, []))
+
+        func open() {
+            let waiters = state.withLock { state in
+                state.isOpen = true
+                defer { state.waiters = [] }
+                return state.waiters
+            }
+            for waiter in waiters {
+                waiter.resume()
+            }
+        }
+
+        func wait() async {
+            await withCheckedContinuation { continuation in
+                let isOpen = state.withLock { state in
+                    if !state.isOpen {
+                        state.waiters.append(continuation)
+                    }
+                    return state.isOpen
+                }
+                if isOpen {
+                    continuation.resume()
+                }
+            }
+        }
+    }
+
+    /// A count that tasks increment.
+    private final class Counter: Sendable {
+        private let count = Mutex(0)
+
+        var value: Int {
+            count.withLock { $0 }
+        }
+
+        func increment() {
+            count.withLock { $0 += 1 }
+        }
+    }
+
+    private let repository = Repository(path: "/nonexistent")
+    private let repositoryID = RepositoryID(bytes: Array(repeating: 7, count: 16))!
+
+    /// Waits until a condition holds, failing after 10 seconds.
+    private func expectEventually(_ condition: @escaping @Sendable () async -> Bool) async throws {
+        try await withTimeLimit {
+            while await !condition() {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+    }
+
+    @Test func joinsDuringTheSubscribeCallShareOneSubscription() async throws {
+        let subscribed = Counter()
+        let unsubscribed = Counter()
+        let started = Gate()
+        let release = Gate()
+        let subscriptions = NotificationSubscriptions(
+            subscribe: { _ in
+                subscribed.increment()
+                started.open()
+                await release.wait()
+            },
+            unsubscribe: { _ in unsubscribed.increment() }
+        )
+        let repository = repository
+        let repositoryID = repositoryID
+        try await withTimeLimit {
+            async let first = subscriptions.join(repository, repositoryID: repositoryID)
+            await started.wait()
+            async let second = subscriptions.join(repository, repositoryID: repositoryID)
+            // Let the second call reach the wait for the subscribe call.
+            try await Task.sleep(for: .milliseconds(100))
+            release.open()
+            let streams = try await (first, second)
+            #expect(await subscriptions.channel(for: repositoryID) != nil)
+            withExtendedLifetime(streams) {}
+        }
+        #expect(subscribed.value == 1)
+
+        // Both streams are released together; the binding unsubscribes once.
+        try await expectEventually { await subscriptions.channel(for: repositoryID) == nil }
+        #expect(unsubscribed.value == 1)
+        #expect(await subscriptions.unsubscribeCount == 1)
+    }
+
+    @Test func joinDuringTheUnsubscribeCallSubscribesAgain() async throws {
+        let subscribed = Counter()
+        let unsubscribed = Counter()
+        let started = Gate()
+        let release = Gate()
+        let subscriptions = NotificationSubscriptions(
+            subscribe: { _ in subscribed.increment() },
+            unsubscribe: { _ in
+                unsubscribed.increment()
+                started.open()
+                await release.wait()
+            }
+        )
+        let repository = repository
+        let repositoryID = repositoryID
+        let renewed = try await withTimeLimit {
+            // Releasing the only stream starts the unsubscribe call.
+            _ = try await subscriptions.join(repository, repositoryID: repositoryID)
+            let ending = await subscriptions.channel(for: repositoryID)
+            await started.wait()
+            async let renewed = subscriptions.join(repository, repositoryID: repositoryID)
+            // Let the call reach the wait for the unsubscribe call.
+            try await Task.sleep(for: .milliseconds(100))
+            release.open()
+            let stream = try await renewed
+            #expect(await subscriptions.channel(for: repositoryID) !== ending)
+            return stream
+        }
+        #expect(subscribed.value == 2)
+        #expect(unsubscribed.value == 1)
+        withExtendedLifetime(renewed) {}
+    }
+
+    @Test func aFailedSubscribeCallFailsEveryWaitingJoin() async throws {
+        let subscribed = Counter()
+        let started = Gate()
+        let release = Gate()
+        let subscriptions = NotificationSubscriptions(
+            subscribe: { _ in
+                subscribed.increment()
+                started.open()
+                await release.wait()
+                throw LoreError(code: .internal, message: "notifications not available when offline")
+            },
+            unsubscribe: { _ in }
+        )
+        let repository = repository
+        let repositoryID = repositoryID
+        let results = try await withTimeLimit {
+            async let first = Result { try await subscriptions.join(repository, repositoryID: repositoryID) }
+            await started.wait()
+            async let second = Result { try await subscriptions.join(repository, repositoryID: repositoryID) }
+            try await Task.sleep(for: .milliseconds(100))
+            release.open()
+            return await [first, second]
+        }
+        for result in results {
+            #expect(throws: LoreError.self) { try result.get() }
+        }
+        // The waiting call finds no subscription and tries again itself.
+        #expect(subscribed.value == 2)
+        #expect(await subscriptions.channel(for: repositoryID) == nil)
+        #expect(await subscriptions.unsubscribeCount == 0)
+    }
+}
+
+extension Result where Failure == any Error {
+    /// Captures the result of an asynchronous throwing operation.
+    fileprivate init(catching body: () async throws -> Success) async {
+        do {
+            self = .success(try await body())
+        } catch {
+            self = .failure(error)
+        }
     }
 }
 
@@ -170,6 +371,59 @@ import Testing
         await collector.cancel()
         try await expectUnsubscribed(repositoryID, channel)
         #expect(await NotificationSubscriptions.shared.unsubscribeCount == unsubscribeCount + 1)
+    }
+
+    @Test func overlappingCallsShareOneSubscription() async throws {
+        let (alice, bob) = try await makeRepositoryAndClone()
+        let repositoryID = try await alice.state().repositoryID
+        let subscriptions = NotificationSubscriptions.shared
+        let unsubscribeCount = await subscriptions.unsubscribeCount
+
+        // The second call starts while the first one subscribes.
+        let (first, second) = try await withTimeLimit {
+            async let first = alice.notifications()
+            async let second = bob.notifications()
+            return try await (Collector(first), Collector(second))
+        }
+        let channel = WeakChannel(await subscriptions.channel(for: repositoryID))
+        let pushed = try await commitAndPush("two\n", in: bob)
+        for collector in [first, second] {
+            #expect(
+                try await collector.first { if case .branchPushed(_, pushed.id, _, _) = $0 { true } else { false } }
+                    != nil
+            )
+        }
+
+        // Both streams end together; the binding unsubscribes once.
+        try await withTimeLimit {
+            async let endFirst: Void = first.cancel()
+            async let endSecond: Void = second.cancel()
+            _ = await (endFirst, endSecond)
+        }
+        try await expectUnsubscribed(repositoryID, channel)
+        #expect(await subscriptions.unsubscribeCount == unsubscribeCount + 1)
+    }
+
+    @Test func subscribingWhileTheLastStreamEnds() async throws {
+        let (alice, bob) = try await makeRepositoryAndClone()
+        let repositoryID = try await alice.state().repositoryID
+        let first = Collector(try await alice.notifications())
+
+        // A new call starts while the only stream ends.
+        let renewed = try await withTimeLimit {
+            async let ended: Void = first.cancel()
+            async let renewed = alice.notifications()
+            await ended
+            return Collector(try await renewed)
+        }
+        let pushed = try await commitAndPush("two\n", in: bob)
+        #expect(
+            try await renewed.first { if case .branchPushed(_, pushed.id, _, _) = $0 { true } else { false } } != nil
+        )
+        let channel = WeakChannel(await NotificationSubscriptions.shared.channel(for: repositoryID))
+        #expect(channel.channel != nil)
+        try await withTimeLimit { await renewed.cancel() }
+        try await expectUnsubscribed(repositoryID, channel)
     }
 
     @Test func streamsForARepositoryShareOneSubscription() async throws {

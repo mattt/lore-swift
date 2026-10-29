@@ -104,12 +104,35 @@ actor NotificationSubscriptions {
 
     private var entries: [RepositoryID: Entry] = [:]
 
+    /// The operation that subscribes a channel.
+    private let subscribe: @Sendable (NotificationChannel) async throws -> Void
+
+    /// The operation that unsubscribes a channel.
+    private let unsubscribe: @Sendable (NotificationChannel) async -> Void
+
     /// The number of times the actor has asked the library to unsubscribe,
     /// for tests.
     private(set) var unsubscribeCount = 0
 
+    /// Creates the subscriptions of a process.
+    ///
+    /// Tests replace the operations that call the library
+    /// with operations that they control.
+    init(
+        subscribe: @escaping @Sendable (NotificationChannel) async throws -> Void = { try await $0.subscribe() },
+        unsubscribe: @escaping @Sendable (NotificationChannel) async -> Void = { await $0.unsubscribe() }
+    ) {
+        self.subscribe = subscribe
+        self.unsubscribe = unsubscribe
+    }
+
     /// Returns a stream of the notifications for a repository,
     /// subscribing first if no stream for the repository is active.
+    ///
+    /// A caller that waits for another caller's library call
+    /// applies the change of phase itself before it looks again,
+    /// because awaiting a finished task doesn't give up the actor,
+    /// so the other caller might not run first.
     func join(_ repository: Repository, repositoryID: RepositoryID) async throws -> AsyncStream<RepositoryNotification>
     {
         while true {
@@ -124,9 +147,11 @@ actor NotificationSubscriptions {
                 // The server ended the subscription.
                 entries[repositoryID] = nil
             case .opening(let task):
-                _ = try? await task.value
+                let succeeded = (try? await task.value) != nil
+                finishOpening(entry.channel, succeeded: succeeded)
             case .closing(let task):
                 await task.value
+                finishClosing(entry.channel)
             }
         }
     }
@@ -140,23 +165,47 @@ actor NotificationSubscriptions {
         _ repository: Repository,
         repositoryID: RepositoryID
     ) async throws -> AsyncStream<RepositoryNotification> {
-        let channel = NotificationChannel(repository: repository, repositoryID: repositoryID)
+        let channel = NotificationChannel(owner: self, repository: repository, repositoryID: repositoryID)
         // The first stream exists before the subscription,
         // so that it receives every notification.
         guard let stream = channel.makeStream() else {
             throw LoreError.missingEvent("a subscription")
         }
-        let task = Task { try await channel.subscribe() }
+        let subscribe = subscribe
+        let task = Task { try await subscribe(channel) }
         entries[repositoryID] = Entry(channel: channel, phase: .opening(task))
         do {
             try await task.value
         } catch {
-            entries[repositoryID] = nil
-            channel.finishStreams()
+            finishOpening(channel, succeeded: false)
             throw error
         }
-        entries[repositoryID]?.phase = .open
+        finishOpening(channel, succeeded: true)
         return stream
+    }
+
+    /// Moves a channel out of the opening phase,
+    /// if no other caller has moved it yet.
+    private func finishOpening(_ channel: NotificationChannel, succeeded: Bool) {
+        let repositoryID = channel.repositoryID
+        guard let entry = entries[repositoryID], entry.channel === channel, case .opening = entry.phase else {
+            return
+        }
+        if succeeded {
+            entries[repositoryID]?.phase = .open
+        } else {
+            entries[repositoryID] = nil
+            channel.finishStreams()
+        }
+    }
+
+    /// Forgets a channel whose library call to unsubscribe has ended,
+    /// if no other caller has forgotten it yet.
+    private func finishClosing(_ channel: NotificationChannel) {
+        let repositoryID = channel.repositoryID
+        if let entry = entries[repositoryID], entry.channel === channel, case .closing = entry.phase {
+            entries[repositoryID] = nil
+        }
     }
 
     /// Removes a stream that terminated,
@@ -176,12 +225,11 @@ actor NotificationSubscriptions {
             return
         }
         unsubscribeCount += 1
-        let task = Task { await channel.unsubscribe() }
+        let unsubscribe = unsubscribe
+        let task = Task { await unsubscribe(channel) }
         entries[repositoryID]?.phase = .closing(task)
         await task.value
-        if entries[repositoryID]?.channel === channel {
-            entries[repositoryID] = nil
-        }
+        finishClosing(channel)
     }
 
     /// Forgets a subscription that the library ended.
@@ -198,6 +246,8 @@ actor NotificationSubscriptions {
 /// The library's callback context holds the channel
 /// from the call that subscribes until the library ends the subscription.
 final class NotificationChannel: Sendable {
+    /// The subscriptions that the channel belongs to.
+    let owner: NotificationSubscriptions
     let repository: Repository
     let repositoryID: RepositoryID
 
@@ -209,7 +259,8 @@ final class NotificationChannel: Sendable {
 
     private let state = Mutex(State())
 
-    init(repository: Repository, repositoryID: RepositoryID) {
+    init(owner: NotificationSubscriptions, repository: Repository, repositoryID: RepositoryID) {
+        self.owner = owner
         self.repository = repository
         self.repositoryID = repositoryID
     }
@@ -236,7 +287,7 @@ final class NotificationChannel: Sendable {
             return nil
         }
         continuation.onTermination = { _ in
-            Task { await NotificationSubscriptions.shared.leave(self, stream: id) }
+            Task { await self.owner.leave(self, stream: id) }
         }
         return stream
     }
@@ -286,7 +337,7 @@ final class NotificationChannel: Sendable {
                 for stream in streams {
                     stream.finish()
                 }
-                Task { await NotificationSubscriptions.shared.ended(self) }
+                Task { await self.owner.ended(self) }
             },
             start: { callback in
                 withExtendedLifetime(arena) {
