@@ -462,18 +462,23 @@ extension ContentStore {
     }
 
     /// The sides of a store that an obliteration acted on.
+    ///
+    /// A returned value means that every side that ran succeeded:
+    /// the obliteration throws if a side that ran fails.
+    /// A `false` flag means that the side didn't run.
     public struct ObliterateResult: Sendable, Hashable {
         /// The address of the content.
         public var address: ContentAddress
 
-        /// A Boolean value that indicates whether the content was removed from the local store,
-        /// or the local store didn't hold it.
+        /// A Boolean value that indicates whether the obliteration ran on the local store
+        /// and removed the content, or found that the local store didn't hold it.
         public var isRemovedLocally: Bool
 
-        /// A Boolean value that indicates whether the content was removed from the server,
-        /// or the server didn't hold it.
+        /// A Boolean value that indicates whether the obliteration ran on the server
+        /// and removed the content, or found that the server didn't hold it.
         ///
-        /// It's `false` for a store without a server.
+        /// It's `false` for a store without a server or a store that's offline,
+        /// where the obliteration doesn't run on a server.
         public var isRemovedFromServer: Bool
     }
 }
@@ -762,6 +767,7 @@ extension ContentStore {
     ///   - partition: The repository whose content it is.
     /// - Returns: The sides of the store that the obliteration acted on.
     /// - Throws: ``LoreError`` if either side can't remove the content.
+    ///   The other side, such as the local store, may already have removed it.
     @discardableResult
     public func obliterate(_ address: ContentAddress, in partition: RepositoryID) async throws -> ObliterateResult {
         let hasServer = serverURL != nil
@@ -897,8 +903,8 @@ extension ContentStore {
     /// Stores the content of a file and publishes it under a key, in one call.
     ///
     /// See ``publish(_:as:in:context:uploading:)``.
-    /// The library reads the file in parts,
-    /// so the content is never in memory at once.
+    /// The library reads the file itself,
+    /// so you don't load the content into memory.
     ///
     /// - Parameters:
     ///   - path: The path of the file,
@@ -990,8 +996,8 @@ extension ContentStore {
     ///
     /// The method resolves the key, of type ``KeyType/published``, to a hash,
     /// and writes the content at that hash and `context`, in one call.
-    /// The library writes the file in parts,
-    /// so the content is never in memory at once.
+    /// The library writes the file itself,
+    /// so you don't load the content into memory.
     /// It replaces a file at `path`,
     /// and leaves the file unchanged if the key names no content.
     ///
