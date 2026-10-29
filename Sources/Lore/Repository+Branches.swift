@@ -241,6 +241,9 @@ extension Repository {
     ///   - name: The name of the branch.
     ///   - includingLinks: Whether to also archive the branch
     ///     in every linked repository.
+    ///     The default is `false`:
+    ///     the library archives the branch only in this repository
+    ///     unless the call asks it to.
     ///   - includingLayers: Whether to also archive the branch
     ///     in the repository of every layer.
     /// - Throws: ``LoreError`` if the library can't archive the branch,

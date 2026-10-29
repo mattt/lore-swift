@@ -25,7 +25,7 @@ public struct MergeResult: Sendable, Hashable {
     ///
     /// It's `nil` if a merge stopped at a conflict in a linked repository
     /// before it merged this repository;
-    /// see ``Repository/mergeBranch(named:message:committing:linkMessages:includingLinks:)``
+    /// see ``Repository/mergeBranch(named:message:committing:linkMessages:ignoringLinks:)``
     /// for what to do next.
     public var sourceRevision: RevisionID?
 
@@ -91,7 +91,7 @@ extension Repository {
     ///
     /// With `mergingAutomatically` set to `true`,
     /// the conflicts are those that
-    /// ``mergeBranch(named:message:committing:linkMessages:includingLinks:)`` reports
+    /// ``mergeBranch(named:message:committing:linkMessages:ignoringLinks:)`` reports
     /// when it merges `source` into `target`.
     ///
     /// - Parameters:
@@ -179,8 +179,10 @@ extension Repository {
     ///   - linkMessages: Commit messages for the merge revisions
     ///     of linked repositories,
     ///     by the path where each link is mounted.
-    ///   - includingLinks: Whether to merge linked repositories.
-    ///     If `false`, each link keeps the revision that it's pinned to.
+    ///   - ignoringLinks: Whether to merge only this repository,
+    ///     so that each link keeps the revision that it's pinned to.
+    ///     The default is `false`:
+    ///     the library merges linked repositories unless the call asks it not to.
     /// - Returns: The result of the merge.
     /// - Throws: ``LoreError`` if the library can't merge,
     ///   such as ``LoreError/Code/branchNotFound``.
@@ -193,7 +195,7 @@ extension Repository {
         message: String? = nil,
         committing: Bool = true,
         linkMessages: [String: String] = [:],
-        includingLinks: Bool = true
+        ignoringLinks: Bool = false
     ) async throws -> MergeResult {
         try await mergeResult(
             isBranchMerge: true,
@@ -203,7 +205,7 @@ extension Repository {
                     arguments.pointee.branch = arena.string(name)
                     arguments.pointee.message = arena.string(message)
                     arguments.pointee.no_commit = UInt8(!committing)
-                    arguments.pointee.ignore_links = UInt8(!includingLinks)
+                    arguments.pointee.ignore_links = UInt8(ignoringLinks)
                     let links = linkMessages.sorted { $0.key < $1.key }
                     arguments.pointee.link_paths = arena.strings(links.map(\.key))
                     arguments.pointee.link_messages = arena.strings(links.map(\.value))
@@ -221,7 +223,7 @@ extension Repository {
     /// and it must include the latest revision of the target branch on the server:
     /// if the target branch has moved on,
     /// merge it into the current branch with
-    /// ``mergeBranch(named:message:committing:linkMessages:includingLinks:)``
+    /// ``mergeBranch(named:message:committing:linkMessages:ignoringLinks:)``
     /// and commit first.
     /// The working directory stays on the current branch.
     ///
