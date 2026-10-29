@@ -6,8 +6,8 @@ import Foundation
 /// A `Repository` value names a directory and the options
 /// that operations on it use;
 /// creating one doesn't touch the file system.
-/// Use ``create(at:name:description:options:)`` to make a new repository
-/// or ``clone(from:to:revision:options:)`` to copy one from a server.
+/// Use ``create(at:name:description:store:options:)`` to make a new repository
+/// or ``clone(from:to:revision:store:options:)`` to copy one from a server.
 ///
 /// Every operation is an `async` method
 /// that runs on the library's own threads
@@ -113,6 +113,17 @@ extension Repository {
     /// resolved against the current directory of the process if it's relative,
     /// or the empty string for an empty path.
     var absolutePath: String {
+        Repository.absolutePath(of: path)
+    }
+
+    /// Resolves a path against the current directory of the process if it's relative,
+    /// returning the empty string for an empty path.
+    ///
+    /// Paths that the binding passes to the library resolve
+    /// against the call's working directory instead,
+    /// so the binding resolves the paths
+    /// that a caller expects to be relative to the current directory.
+    static func absolutePath(of path: String) -> String {
         guard !path.isEmpty else {
             return ""
         }

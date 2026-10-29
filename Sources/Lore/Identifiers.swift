@@ -189,3 +189,45 @@ extension ContentAddress: LosslessStringConvertible {
         "\(hexadecimal(hash))-\(hexadecimal(context))"
     }
 }
+
+/// The 128-bit identifier of a repository instance:
+/// one checkout of a repository on this computer.
+///
+/// The library generates it when it creates the checkout
+/// and keeps it in the checkout's `.lore` directory.
+/// Its ``description`` is 32 lowercase hexadecimal digits.
+public struct InstanceID: Sendable, Hashable {
+    /// The 16 bytes of the identifier.
+    public let bytes: [UInt8]
+
+    /// Creates an instance ID from its 16 bytes.
+    ///
+    /// Returns `nil` if `bytes` doesn't hold exactly 16 bytes.
+    public init?(bytes: [UInt8]) {
+        guard bytes.count == 16 else {
+            return nil
+        }
+        self.bytes = bytes
+    }
+
+    /// Creates an instance ID from 32 hexadecimal digits.
+    ///
+    /// Returns `nil` if `description` isn't 32 hexadecimal digits.
+    public init?(_ description: some StringProtocol) {
+        guard let bytes = decodeHexadecimal(description) else {
+            return nil
+        }
+        self.init(bytes: bytes)
+    }
+
+    /// Copies a library instance identifier.
+    init(_ id: lore_instance_id_t) {
+        self.bytes = tupleBytes(id.data)
+    }
+}
+
+extension InstanceID: LosslessStringConvertible {
+    public var description: String {
+        hexadecimal(bytes)
+    }
+}

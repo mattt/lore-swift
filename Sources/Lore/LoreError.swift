@@ -123,6 +123,8 @@ extension LoreError.Code {
     public static let maintenance = Self(rawValue: 30)
     /// The store is overloaded; retry later.
     public static let slowDown = Self(rawValue: 31)
+    /// The background service isn't running and can't be started.
+    public static let serviceUnavailable = Self(rawValue: 32)
     /// Nothing is staged for commit.
     public static let nothingStaged = Self(rawValue: 40)
     /// Another instance advanced the branch; sync and stage again.
@@ -137,6 +139,8 @@ extension LoreError.Code {
     public static let lockNotOwned = Self(rawValue: 45)
     /// The new metadata is identical to the original.
     public static let identicalMetadata = Self(rawValue: 46)
+    /// Something still uses a virtual file system mount.
+    public static let mountsBusy = Self(rawValue: 51)
     /// The repository is already a layer at the path.
     public static let alreadyLinked = Self(rawValue: 56)
     /// The branch already exists.

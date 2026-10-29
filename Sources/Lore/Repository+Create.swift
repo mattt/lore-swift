@@ -36,6 +36,7 @@ extension Repository {
     ///   - name: The URL or, offline, the name of the repository.
     ///     An empty name, offline, names the repository after its directory.
     ///   - description: An optional description of the repository.
+    ///   - store: Where the repository keeps its content.
     ///   - options: The options for operations on the repository.
     /// - Returns: The new repository.
     /// - Throws: ``LoreError`` if the library can't create the repository,
@@ -45,6 +46,7 @@ extension Repository {
         at path: String,
         name: String = "",
         description: String? = nil,
+        store: StoreLocation = .automatic,
         options: Options = Options()
     ) async throws -> Repository {
         let repository = Repository(path: path, options: options)
@@ -53,6 +55,7 @@ extension Repository {
             configure: { (arguments: UnsafeMutablePointer<lore_repository_create_args_t>, arena) in
                 arguments.pointee.repository_url = arena.string(name)
                 arguments.pointee.description = arena.string(description)
+                store.configure(&arguments.pointee.use_shared_store, &arguments.pointee.shared_store_path, in: arena)
             },
             transform: { _ -> Never? in nil }
         )
@@ -67,6 +70,7 @@ extension Repository {
     ///   - path: The path of the directory for the clone.
     ///   - revision: The revision to check out,
     ///     or `nil` for the latest revision of the default branch.
+    ///   - store: Where the clone keeps the repository's content.
     ///   - options: The options for operations on the repository.
     /// - Returns: The cloned repository.
     /// - Throws: ``LoreError`` if the library can't clone the repository.
@@ -75,12 +79,13 @@ extension Repository {
         from url: String,
         to path: String,
         revision: RevisionSpecifier? = nil,
+        store: StoreLocation = .automatic,
         options: Options = Options()
     ) async throws -> Repository {
         let repository = Repository(path: path, options: options)
         _ = try await repository.perform(
             lore_repository_clone_async,
-            configure: cloneArguments(url: url, revision: revision),
+            configure: cloneArguments(url: url, revision: revision, store: store),
             transform: { _ -> Never? in nil }
         )
         return repository
@@ -98,6 +103,7 @@ extension Repository {
     ///   - path: The path of the directory for the clone.
     ///   - revision: The revision to check out,
     ///     or `nil` for the latest revision of the default branch.
+    ///   - store: Where the clone keeps the repository's content.
     ///   - options: The options for operations on the repository.
     /// - Returns: A stream of the clone's progress, then the cloned repository.
     ///   The stream throws ``LoreError`` if the clone fails.
@@ -105,12 +111,13 @@ extension Repository {
         from url: String,
         to path: String,
         revision: RevisionSpecifier? = nil,
+        store: StoreLocation = .automatic,
         options: Options = Options()
     ) -> AsyncThrowingStream<OperationUpdate<CloneProgress, Repository>, any Error> {
         let repository = Repository(path: path, options: options)
         return repository.updates(
             lore_repository_clone_async,
-            configure: cloneArguments(url: url, revision: revision),
+            configure: cloneArguments(url: url, revision: revision, store: store),
             transform: { event -> CloneProgress? in
                 switch event.pointee.tag {
                 case LORE_EVENT_REPOSITORY_CLONE_PROGRESS.rawValue:
@@ -128,11 +135,13 @@ extension Repository {
 
     private static func cloneArguments(
         url: String,
-        revision: RevisionSpecifier?
+        revision: RevisionSpecifier?,
+        store: StoreLocation
     ) -> (UnsafeMutablePointer<lore_repository_clone_args_t>, Arena) -> Void {
         { arguments, arena in
             arguments.pointee.repository_url = arena.string(url)
             arguments.pointee.revision = arena.string(revision?.rawValue)
+            store.configure(&arguments.pointee.use_shared_store, &arguments.pointee.shared_store_path, in: arena)
         }
     }
 }

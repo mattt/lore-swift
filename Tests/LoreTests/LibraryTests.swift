@@ -1,3 +1,4 @@
+import CLore
 import Foundation
 import Synchronization
 import Testing
@@ -16,7 +17,23 @@ import Testing
     }
 }
 
-@Suite struct LoggingTests {
+/// Tests of the process-wide log handler,
+/// which run one at a time because each sets the handler.
+@Suite(.serialized) struct LoggingTests {
+    @Test func handlerCanBeReplacedAfterManyMessages() throws {
+        let messages = Messages()
+        try Library.setLogHandler(level: .error) { messages.append($0) }
+        defer { try? Library.setLogHandler(nil) }
+
+        var data = lore_log_event_data_t()
+        data.level = LORE_LOG_LEVEL_ERROR
+        for _ in 0 ..< 100_000 {
+            LogHandler.dispatch(data)
+        }
+        #expect(messages.count >= 100_000)
+        try Library.setLogHandler(nil)
+    }
+
     @Test func handlerReceivesLogMessages() async throws {
         let messages = Messages()
         try Library.setLogHandler(level: .debug) { messages.append($0) }
@@ -36,6 +53,10 @@ private final class Messages: Sendable {
 
     var values: [Library.LogEntry] {
         storage.withLock { $0 }
+    }
+
+    var count: Int {
+        storage.withLock { $0.count }
     }
 
     func append(_ message: Library.LogEntry) {

@@ -249,11 +249,17 @@ so it must return promptly.
 | Version | `lore_version`, `LORE_INTERFACE_VERSION`, `lore_user_directory` | `Library.version`, `Library.interfaceVersion`, `Library.userDirectory` |
 | Logging | `lore_log_configure`, `LORE_EVENT_LOG` | `Library.setLogHandler(level:_:)` |
 | Shutdown | `lore_shutdown` | `Library.shutdown()` |
+| Process settings | `lore_set_thread_limit`, `lore_set_compression_mode`, `lore_set_compression_level` | `Library.setThreadLimit(_:)`, `Library.setCompressionMode(_:)`, `Library.setCompressionLevel(_:)` |
 | Errors | `LORE_EVENT_COMPLETE`, `lore_error_detail_t` | `LoreError` |
-| Create | `lore_repository_create_async` | `Repository.create(at:name:description:options:)` |
-| Clone | `lore_repository_clone_async` | `Repository.clone(from:to:revision:options:)`, `cloneUpdates` |
+| Create | `lore_repository_create_async` | `Repository.create(at:name:description:store:options:)` |
+| Clone | `lore_repository_clone_async` | `Repository.clone(from:to:revision:store:options:)`, `cloneUpdates` |
 | Status | `lore_repository_status_async` | `status(of:scanning:)` |
-| Repository | `lore_repository_info_async` | `info()` |
+| Repository | `lore_repository_info_async`, `lore_repository_config_get_async` | `info()`, `configurationValue(forKey:)` |
+| Server repositories | `lore_repository_list_async`, `lore_repository_delete_async` | `Repository.repositories(on:options:)`, `Repository.deleteFromServer(_:options:)`, `deleteFromServer()` |
+| Maintenance | `lore_repository_dump_async`, `lore_repository_store_immutable_query_async`, `lore_repository_verify_state_async`, `lore_repository_gc_async`, `lore_repository_flush_async`, `lore_repository_release_async` | `stateDump(of:under:maximumDepth:)`, `storeEntries(for:includingSubfragments:checkingServer:)`, `verifyState(of:healing:)`, `collectGarbage()`, `flush()`, `releaseStores()` |
+| Instances | `lore_repository_instance_list_async`, `lore_repository_instance_prune_async`, `lore_repository_update_path_async` | `instances()`, `pruneStaleInstances()`, `updateInstancePath()` |
+| Shared stores | `lore_shared_store_create_async`, `lore_shared_store_list_async`, `lore_shared_store_info_async`, `lore_shared_store_set_use_automatically_async` | `SharedStore.create(for:in:makingDefault:options:)`, `SharedStore.all(includingInstances:)`, `SharedStore.configuration()`, `SharedStore.setUsedAutomatically(_:)` |
+| Background service | `lore_service_start_async`, `lore_service_stop_async`, `lore_service_status_async`, `lore_service_set_executable_async`, `lore_service_set_use_automatically_async` | `BackgroundService.start()`, `BackgroundService.stop(force:)`, `BackgroundService.status()`, `BackgroundService.setExecutable(_:)`, `BackgroundService.setUsedAutomatically(_:)` |
 | Repository metadata | `lore_repository_metadata_get_async`, `lore_repository_metadata_set_async`, `lore_repository_metadata_clear_async` | `repositoryMetadata()`, `repositoryMetadata(forKey:)`, `setRepositoryMetadata(_:)`, `clearRepositoryMetadata(keys:)` |
 | Stage | `lore_file_stage_async`, `lore_file_stage_move_async`, `lore_file_unstage_async`, `lore_file_reset_async` | `stage(_:scanning:)`, `stageMove(from:to:)`, `unstage(_:)`, `reset(_:to:deletingUntrackedFiles:)` |
 | Dirty files | `lore_file_dirty_async`, `lore_file_dirty_move_async`, `lore_file_dirty_copy_async` | `markDirty(_:)`, `markMoved(from:to:)`, `markCopied(from:to:)` |
