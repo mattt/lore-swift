@@ -997,12 +997,12 @@ extension RevisionTree {
     /// Unlike ``Repository/setRevisionMetadata(_:)``,
     /// this method sets values of every type,
     /// including ``MetadataValue/binary(_:)``
-    /// and ``MetadataValue/address(hash:context:)``.
+    /// and ``MetadataValue/address(_:)``.
     ///
     /// - Parameter values: The values to set, by key.
     /// - Throws: ``LoreError`` if the library can't set the metadata,
     ///   or with ``LoreError/Code/invalidArguments``
-    ///   for a hash, context, or address with the wrong number of bytes.
+    ///   for a hash or context with the wrong number of bytes.
     public func setMetadata(_ values: [String: MetadataValue]) async throws {
         for (key, value) in values {
             try value.checkByteCounts(forKey: key)

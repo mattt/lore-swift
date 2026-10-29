@@ -283,7 +283,7 @@ import Testing
             "blob": .binary([0, 1, 2, 255]),
             "hash": .hash(address.hash),
             "context": .context(address.context),
-            "address": .address(hash: address.hash, context: address.context),
+            "address": .address(address),
         ]
         try await tree.setMetadata(values)
         #expect(try await tree.metadata(forKeys: Array(values.keys) + ["missing"]) == values)
@@ -752,7 +752,7 @@ import Testing
         (.binary([1, 2, 3]), 16),
         (.hash(Array(repeating: 0xff, count: 32)), 32),
         (.context(Array(repeating: 0xff, count: 16)), 16),
-        (.address(hash: Array(repeating: 0xff, count: 32), context: Array(repeating: 0xff, count: 16)), 48),
+        (.address(ContentAddress(hash: Array(repeating: 0xff, count: 32), context: Array(repeating: 0xff, count: 16))!), 48),
     ])
     func metadataValuesKeepTheirPaddingZero(_ value: MetadataValue, memberSize: Int) throws {
         // The header requires every byte of a structure to be zero,

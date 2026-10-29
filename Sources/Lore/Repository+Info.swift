@@ -105,7 +105,7 @@ extension Repository {
     ///   such as ``LoreError/Code/noRemote``,
     ///   or with ``LoreError/Code/notSupported``
     ///   for a ``MetadataValue/binary(_:)``
-    ///   or ``MetadataValue/address(hash:context:)`` value,
+    ///   or ``MetadataValue/address(_:)`` value,
     ///   which the binding can't set.
     public func setRepositoryMetadata(_ values: [String: MetadataValue]) async throws {
         let metadata = try EncodedMetadata(values)

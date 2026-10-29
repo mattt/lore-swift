@@ -424,7 +424,7 @@ extension Repository {
     /// - Throws: ``LoreError`` if the library can't set the metadata,
     ///   or with ``LoreError/Code/notSupported``
     ///   for a ``MetadataValue/binary(_:)``
-    ///   or ``MetadataValue/address(hash:context:)`` value,
+    ///   or ``MetadataValue/address(_:)`` value,
     ///   which the binding can't set.
     public func setRevisionMetadata(_ values: [String: MetadataValue]) async throws {
         let metadata = try EncodedMetadata(values)
