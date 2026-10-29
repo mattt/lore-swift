@@ -467,6 +467,21 @@ import Testing
         }
 
         @Test func logOutWithAnAuthenticationURLDoesNotRevoke() async throws {
+            let repository = try await makeRepository()
+            let refreshToken = "refresh-\(UUID().uuidString)"
+            try await logInInteractively(
+                repository.logInInteractively(),
+                approvingWith: try token(for: "erin"),
+                refreshToken: refreshToken
+            )
+
+            try await Authentication.logOut(authenticationURL: authenticationURL, userID: "erin")
+            #expect(try await isRevoked(refreshToken) == false)
+            #expect(try await Authentication.credentials().isEmpty)
+        }
+
+        @Test func repositoryLogOutRevokesAServerLogin() async throws {
+            let repository = try await makeRepository()
             let refreshToken = "refresh-\(UUID().uuidString)"
             try await logInInteractively(
                 Authentication.logInInteractively(server: server),
@@ -474,8 +489,8 @@ import Testing
                 refreshToken: refreshToken
             )
 
-            try await Authentication.logOut(authenticationURL: authenticationURL, userID: "erin")
-            #expect(try await isRevoked(refreshToken) == false)
+            try await repository.logOut(userID: "erin")
+            #expect(try await isRevoked(refreshToken))
             #expect(try await Authentication.credentials().isEmpty)
         }
 
