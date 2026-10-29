@@ -220,7 +220,8 @@ for try await notification in try await repository.notifications() {
 }
 ```
 
-The subscription ends when the loop ends or its task is cancelled.
+Streams for the same repository share one subscription,
+which ends when the last of them terminates.
 
 ### Logging in
 
