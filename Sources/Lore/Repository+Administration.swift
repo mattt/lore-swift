@@ -70,7 +70,8 @@ extension Repository {
     public static func deleteFromServer(_ url: String, options: Options = Options()) async throws {
         guard url.contains("://") else {
             // The library resolves a name without a scheme
-            // against the repository in the current directory of the process.
+            // against the server of the repository at the repository path,
+            // which is empty here.
             throw LoreError(code: .invalidArguments, message: "The repository URL has no scheme: \(url)")
         }
         try await Repository(path: "", options: options).deleteFromServer(nameOrURL: url)
