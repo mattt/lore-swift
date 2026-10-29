@@ -231,3 +231,37 @@ extension InstanceID: LosslessStringConvertible {
         hexadecimal(bytes)
     }
 }
+
+extension RevisionID {
+    /// The library hash of the revision ID.
+    var libraryValue: lore_hash_t {
+        var hash = lore_hash_t()
+        setTupleBytes(&hash.data, to: bytes)
+        return hash
+    }
+}
+
+extension RepositoryID {
+    /// The library partition of the repository ID.
+    var libraryValue: lore_partition_t {
+        var partition = lore_partition_t()
+        setTupleBytes(&partition.data, to: bytes)
+        return partition
+    }
+}
+
+extension ContentAddress {
+    /// The library address of the content address.
+    var libraryValue: lore_address_t {
+        var address = lore_address_t()
+        setTupleBytes(&address.hash.data, to: hash)
+        setTupleBytes(&address.context.data, to: context)
+        return address
+    }
+
+    /// A Boolean value that indicates whether every byte of the address is zero,
+    /// which the library uses to mean "none".
+    var isZero: Bool {
+        !hash.contains { $0 != 0 } && !context.contains { $0 != 0 }
+    }
+}
