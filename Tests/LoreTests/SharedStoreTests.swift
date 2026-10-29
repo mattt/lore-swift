@@ -38,6 +38,20 @@ import Testing
         #expect(empty?.code == .invalidArguments)
     }
 
+    @Test func createMakesTheStoreOfOfflineRepositories() async throws {
+        let directory = temporaryPath("shared-stores")
+        let store = try await SharedStore.create(for: nil, in: directory, options: offline)
+        #expect(store.remote == nil)
+        #expect(store.path == "\(directory)/shared_store")
+        #expect(try await SharedStore.all().filter { $0.path.hasPrefix(directory) } == [store])
+
+        // The store of offline repositories is for offline calls only.
+        let online = await #expect(throws: LoreError.self) {
+            try await SharedStore.create(for: nil, in: temporaryPath("shared-stores"))
+        }
+        #expect(online?.code == .noRemote)
+    }
+
     @Test func createResolvesARelativeDirectoryAgainstTheCurrentDirectory() async throws {
         let directory = temporaryPath("shared-stores")
         let relative = relativePath(to: directory)
@@ -123,7 +137,7 @@ import Testing
         let store = try #require(
             try await SharedStore.all(includingInstances: true).first { $0.path.hasPrefix(directory) }
         )
-        #expect(store.remote == "")
+        #expect(store.remote == nil)
         #expect(store.path == "\(directory)/shared_store")
         let firstInstance = try #require(try await first.instances().first)
         let secondInstance = try #require(try await second.instances().first)
@@ -181,7 +195,7 @@ import Testing
 
             // A checkout that asks for the default store of a server
             // makes the store and records it as the default.
-            // An offline repository has no server, so its server is the empty string.
+            // An offline repository has no server, so its store has no server address.
             let shared = try await Repository.create(
                 at: temporaryRepositoryPath(),
                 name: "shared",
@@ -195,7 +209,7 @@ import Testing
                     == Set(
                         defaults + [
                             SharedStore.Configuration.DefaultStore(
-                                serverAddress: "",
+                                serverAddress: nil,
                                 path: "\(defaultDirectory)/shared_store",
                                 exists: true
                             )
