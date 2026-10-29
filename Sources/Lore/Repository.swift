@@ -6,8 +6,8 @@ import Foundation
 /// A `Repository` value names a directory and the options
 /// that operations on it use;
 /// creating one doesn't touch the file system.
-/// Use ``create(at:name:description:options:)`` to make a new repository
-/// or ``clone(from:to:revision:options:)`` to copy one from a server.
+/// Use ``create(at:name:description:store:options:)`` to make a new repository
+/// or ``clone(from:to:revision:store:options:)`` to copy one from a server.
 ///
 /// Every operation is an `async` method
 /// that runs on the library's own threads

@@ -337,6 +337,37 @@ import Testing
             #expect(try await Authentication.credentials().map(\.authenticationURL) == [authenticationURL])
         }
 
+        /// Deletes only a repository that this suite creates on the local server.
+        @Test func onlyTheCreatorDeletesARepositoryFromTheServer() async throws {
+            try await Authentication.logIn(token: try token(for: "alice"), server: server)
+            let alice = Repository.Options(identity: "alice")
+            let path = temporaryRepositoryPath("deleted")
+            let url = "\(server)/\(URL(filePath: path).lastPathComponent)"
+            let repository = try await Repository.create(at: path, name: url, options: alice)
+            try repository.write("hello\n", to: "a.txt")
+            try await repository.stage(["a.txt"])
+            try await repository.commit(message: "First")
+            try await repository.push()
+            try await Repository.clone(from: url, to: temporaryRepositoryPath("clone"), options: alice)
+
+            try await Authentication.logIn(token: try token(for: "bob"), server: server)
+            let refused = await #expect(throws: LoreError.self) {
+                try await Repository.deleteFromServer(url, options: Repository.Options(identity: "bob"))
+            }
+            #expect(refused?.code == .notAuthorized)
+
+            try await repository.deleteFromServer()
+            let clone = await #expect(throws: LoreError.self) {
+                try await Repository.clone(from: url, to: temporaryRepositoryPath("clone"), options: alice)
+            }
+            #expect(clone?.code == .notFound)
+            let again = await #expect(throws: LoreError.self) {
+                try await Repository.deleteFromServer(url, options: alice)
+            }
+            #expect(again?.code == .notFound)
+            #expect(try repository.read("a.txt") == "hello\n")
+        }
+
         @Test func interactiveLogin() async throws {
             let (progress, user) = try await logInInteractively(
                 Authentication.logInInteractively(server: server),

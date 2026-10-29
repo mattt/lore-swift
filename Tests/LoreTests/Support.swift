@@ -17,15 +17,51 @@ let scratchDirectory = URL(filePath: #filePath)
 /// because the library reads `HOME` when it first needs its user directory.
 ///
 /// It also keeps the library's token store in the scratch directory,
-/// with its encryption key in a file there instead of the login keychain.
+/// with its encryption key in a file there instead of the login keychain,
+/// and keeps the library's global configuration in the scratch `HOME`.
+/// It names a socket for the background service that only the tests use,
+/// so that no test reaches a service that the user runs,
+/// and removes the variables that would send operations to a service.
 let isolatedHome: String = {
     let home = scratchDirectory.appending(path: "test-home").path
     try? FileManager.default.createDirectory(atPath: home, withIntermediateDirectories: true)
     setenv("HOME", home, 1)
     setenv("LORE_AUTH_STORE", "fallback", 1)
     setenv("LORE_AUTH_PATH", "\(home)/auth", 1)
+    unsetenv("LORE_GLOBAL_PATH")
+    setenv("LORE_SERVICE_SOCKET", "lore_service_swift_tests", 1)
+    unsetenv("LORE_USE_SERVICE")
+    unsetenv("LORE_SERVICE_EXECUTABLE")
     return home
 }()
+
+/// Gives the process its own global Lore configuration and data
+/// in a new scratch directory, and returns the directory.
+///
+/// Call this first in the body of an exit test
+/// that changes a setting in the global configuration,
+/// so that the change reaches no other test.
+/// The library reads `LORE_GLOBAL_PATH` on every call.
+func isolateGlobalDirectory() -> String {
+    _ = isolatedHome
+    let directory =
+        scratchDirectory
+        .appending(path: "test-global")
+        .appending(path: UUID().uuidString.prefix(8).lowercased())
+        .path
+    try? FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+    setenv("LORE_GLOBAL_PATH", directory, 1)
+    return directory
+}
+
+/// Returns a new, unique path in the scratch directory for something other than a repository,
+/// such as a shared store.
+func temporaryPath(_ label: String) -> String {
+    _ = isolatedHome
+    let directory = scratchDirectory.appending(path: "test-files")
+    try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    return directory.appending(path: "\(label)-\(UUID().uuidString.prefix(8).lowercased())").path
+}
 
 /// The URL of the local server for integration tests.
 let serverURL = ProcessInfo.processInfo.environment["LORE_SERVER_URL"] ?? "lore://127.0.0.1:43537"
