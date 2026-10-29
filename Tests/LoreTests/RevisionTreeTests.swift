@@ -1,6 +1,5 @@
 import CLore
 import Foundation
-import Synchronization
 import Testing
 
 @testable import Lore
@@ -811,27 +810,5 @@ import Testing
         #expect(try await clone.revision().id == revision.id)
         #expect(try clone.read("b.txt") == "hello\n")
         #expect(!FileManager.default.fileExists(atPath: "\(clone.path)/a.txt"))
-    }
-}
-
-/// A reference that doesn't keep its object alive.
-private final class WeakReference<Object: AnyObject> {
-    weak var value: Object?
-
-    init(_ value: Object?) {
-        self.value = value
-    }
-}
-
-/// The outcomes of the library calls that close a revision tree.
-private final class ReleaseLog: Sendable {
-    private let storage = Mutex<[LoreError?]>([])
-
-    var errors: [LoreError?] {
-        storage.withLock { $0 }
-    }
-
-    @Sendable func record(_ error: LoreError?) {
-        storage.withLock { $0.append(error) }
     }
 }

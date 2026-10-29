@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 
 @testable import Lore
@@ -120,5 +121,27 @@ extension Repository {
     /// Reads the text of a file in the repository directory.
     func read(_ file: String) throws -> String {
         try String(contentsOfFile: "\(path)/\(file)", encoding: .utf8)
+    }
+}
+
+/// A reference that doesn't keep its object alive.
+final class WeakReference<Object: AnyObject> {
+    weak var value: Object?
+
+    init(_ value: Object?) {
+        self.value = value
+    }
+}
+
+/// The outcomes of the library calls that close a revision tree or a store.
+final class ReleaseLog: Sendable {
+    private let storage = Mutex<[LoreError?]>([])
+
+    var errors: [LoreError?] {
+        storage.withLock { $0 }
+    }
+
+    @Sendable func record(_ error: LoreError?) {
+        storage.withLock { $0.append(error) }
     }
 }
