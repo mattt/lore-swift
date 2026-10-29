@@ -164,6 +164,11 @@ import Testing
         #expect(try await patchLines(" ", contextLines: 1) == [" line 4", " line 6", " line 7", " line 9"])
         #expect(try await patchLines("+") == ["+++ a.txt@2", "+changed", "+line 8 "])
         #expect(try await patchLines("+", ignoringTrailingWhitespace: true) == ["+++ a.txt@2", "+changed"])
+        // Trailing whitespace counts by default, as it does for an audit.
+        #expect(
+            try await repository.diff(from: "main@1", to: "main@2")
+                == (try await repository.diff(from: "main@1", to: "main@2", ignoringTrailingWhitespace: false))
+        )
     }
 
     @Test func unstageKeepsTheWorkingCopy() async throws {

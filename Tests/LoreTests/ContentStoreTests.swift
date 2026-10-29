@@ -680,11 +680,24 @@ import Testing
         #expect(ContentStore.Hash(revision).bytes == bytes)
     }
 
-    @Test func keyTypesHaveOnlyTheRawValuesThatTheHeaderDefines() {
-        #expect(ContentStore.KeyType(rawValue: LORE_KEY_TYPE_UNTYPED.rawValue) == .untyped)
-        #expect(ContentStore.KeyType(rawValue: LORE_KEY_TYPE_RESOLVE.rawValue) == .published)
-        #expect(ContentStore.KeyType(rawValue: LORE_KEY_TYPE_RESOLVE.rawValue + 1) == nil)
-        #expect(ContentStore.KeyType(rawValue: .max) == nil)
+    @Test(arguments: [
+        (LORE_KEY_TYPE_UNTYPED, ContentStore.KeyType.untyped),
+        (LORE_KEY_TYPE_BRANCH_METADATA, .branchMetadata),
+        (LORE_KEY_TYPE_BRANCH_ID, .branchID),
+        (LORE_KEY_TYPE_BRANCH_LATEST_POINTER, .branchLatest),
+        (LORE_KEY_TYPE_REPOSITORY_METADATA, .repositoryMetadata),
+        (LORE_KEY_TYPE_REPOSITORY_ID, .repositoryID),
+        (LORE_KEY_TYPE_INSTANCE, .instance),
+        (LORE_KEY_TYPE_RESOLVE, .published),
+    ])
+    func keyTypesHaveTheRawValuesThatTheHeaderDefines(type: lore_key_type_t, keyType: ContentStore.KeyType) {
+        #expect(ContentStore.KeyType(rawValue: type.rawValue) == keyType)
+        #expect(keyType.rawValue == type.rawValue)
+    }
+
+    @Test(arguments: [LORE_KEY_TYPE_RESOLVE.rawValue + 1, 100, .max])
+    func keyTypesRejectOtherRawValues(rawValue: UInt32) {
+        #expect(ContentStore.KeyType(rawValue: rawValue) == nil)
     }
 
     @Test func argumentsAreZeroedApartFromTheFieldsThatTheBindingSets() throws {
