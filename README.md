@@ -3,10 +3,6 @@
 Swift bindings for [Lore](https://github.com/EpicGames/lore),
 Epic Games' version control system.
 
-> [!WARNING]
-> This package is an early prototype.
-> Its API may change.
-
 ## Requirements
 
 - Swift 6.2+ / Xcode 26+
