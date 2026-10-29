@@ -210,7 +210,8 @@ extension Repository {
     /// - Returns: The open store.
     /// - Throws: ``LoreError`` if the library can't open the store,
     ///   such as ``LoreError/Code/repositoryNotFound``
-    ///   for a directory that isn't a repository.
+    ///   for a directory that isn't a repository,
+    ///   or with ``LoreError/Code/invalidArguments`` for an empty server URL.
     public func openStore(connectingTo remote: String? = nil) async throws -> ContentStore {
         try await openStore(connectingTo: remote, onRelease: nil)
     }
@@ -221,6 +222,7 @@ extension Repository {
         connectingTo remote: String?,
         onRelease: (@Sendable (LoreError?) -> Void)?
     ) async throws -> ContentStore {
+        try ContentStore.checkRemote(remote)
         let repositoryID = try await state().repositoryID
         let directory = absolutePath
         let handleID = try await ContentStore.open(caller: self, remote: remote) { arguments, arena in
@@ -253,11 +255,13 @@ extension ContentStore {
     ///     as the identity in `options`.
     ///   - options: The options that calls on the store use.
     /// - Returns: The open store.
-    /// - Throws: ``LoreError`` if the library can't open the store.
+    /// - Throws: ``LoreError`` if the library can't open the store,
+    ///   or with ``LoreError/Code/invalidArguments`` for an empty server URL.
     public static func openInMemory(
         connectingTo remote: String? = nil,
         options: Repository.Options = Repository.Options()
     ) async throws -> ContentStore {
+        try checkRemote(remote)
         let caller = Repository(path: "", options: options)
         let handleID = try await open(caller: caller, remote: remote) { arguments, _ in
             arguments.pointee.in_memory = 1
@@ -269,6 +273,14 @@ extension ContentStore {
             options: options,
             handleID: handleID
         )
+    }
+
+    /// Throws ``LoreError/Code/invalidArguments`` for an empty server URL,
+    /// because `nil` is the way to open a store without a server.
+    fileprivate static func checkRemote(_ remote: String?) throws {
+        if remote?.isEmpty == true {
+            throw LoreError(code: .invalidArguments, message: "The server URL is empty; pass nil for no server.")
+        }
     }
 
     /// Opens a store and returns the library's identifier for it.

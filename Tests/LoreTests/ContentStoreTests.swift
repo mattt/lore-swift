@@ -52,6 +52,21 @@ import Testing
         #expect(missing?.code == .repositoryNotFound)
     }
 
+    @Test func storesRefuseAnEmptyServerURL() async throws {
+        let (repository, _, _) = try await makeRepository()
+        let local = await #expect(throws: LoreError.self) {
+            try await repository.openStore(connectingTo: "")
+        }
+        #expect(local?.code == .invalidArguments)
+        let inMemory = await #expect(throws: LoreError.self) {
+            try await ContentStore.openInMemory(connectingTo: "")
+        }
+        #expect(inMemory?.code == .invalidArguments)
+        // The repository's store stays free for a store without a server.
+        let store = try await repository.openStore()
+        try await store.close()
+    }
+
     @Test func putsAndReadsContent() async throws {
         let (repository, id, _) = try await makeRepository()
         let store = try await repository.openStore()
