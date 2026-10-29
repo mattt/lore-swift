@@ -92,6 +92,19 @@ func withTimeLimit<T: Sendable>(
         }
     }
 
+    /// Strings that tasks record.
+    private final class Recorder: Sendable {
+        private let storage = Mutex<[String]>([])
+
+        var values: [String] {
+            storage.withLock { $0 }
+        }
+
+        func append(_ value: String) {
+            storage.withLock { $0.append(value) }
+        }
+    }
+
     private let repository = Repository(path: "/nonexistent")
     private let repositoryID = RepositoryID(bytes: Array(repeating: 7, count: 16))!
 
@@ -143,8 +156,16 @@ func withTimeLimit<T: Sendable>(
         let unsubscribed = Counter()
         let started = Gate()
         let release = Gate()
+        let renewing = Gate()
         let subscriptions = NotificationSubscriptions(
-            subscribe: { _ in subscribed.increment() },
+            subscribe: { _ in
+                subscribed.increment()
+                // The second subscribe call stays open for a while,
+                // so that the first call's continuation runs while it does.
+                if subscribed.value == 2 {
+                    await renewing.wait()
+                }
+            },
             unsubscribe: { _ in
                 unsubscribed.increment()
                 started.open()
@@ -153,54 +174,91 @@ func withTimeLimit<T: Sendable>(
         )
         let repository = repository
         let repositoryID = repositoryID
-        let renewed = try await withTimeLimit {
+        try await withTimeLimit {
             // Releasing the only stream starts the unsubscribe call.
             _ = try await subscriptions.join(repository, repositoryID: repositoryID)
             let ending = await subscriptions.channel(for: repositoryID)
+            #expect(ending != nil)
             await started.wait()
             async let renewed = subscriptions.join(repository, repositoryID: repositoryID)
             // Let the call reach the wait for the unsubscribe call.
             try await Task.sleep(for: .milliseconds(100))
             release.open()
+            try await Task.sleep(for: .milliseconds(100))
+            renewing.open()
             let stream = try await renewed
-            #expect(await subscriptions.channel(for: repositoryID) !== ending)
-            return stream
+            let channel = await subscriptions.channel(for: repositoryID)
+            #expect(channel != nil)
+            #expect(channel !== ending)
+            withExtendedLifetime(stream) {}
         }
         #expect(subscribed.value == 2)
-        #expect(unsubscribed.value == 1)
-        withExtendedLifetime(renewed) {}
+
+        // Releasing the renewed stream unsubscribes again.
+        try await expectEventually { unsubscribed.value == 2 }
     }
 
-    @Test func aFailedSubscribeCallFailsEveryWaitingJoin() async throws {
+    @Test func aFailedSubscribeCallLeavesTheRetryOfAWaitingJoin() async throws {
         let subscribed = Counter()
         let started = Gate()
         let release = Gate()
+        let retrying = Gate()
+        let unsubscribed = Counter()
         let subscriptions = NotificationSubscriptions(
             subscribe: { _ in
                 subscribed.increment()
-                started.open()
-                await release.wait()
-                throw LoreError(code: .internal, message: "notifications not available when offline")
+                if subscribed.value == 1 {
+                    started.open()
+                    await release.wait()
+                    throw LoreError(code: .internal, message: "notifications not available when offline")
+                }
+                // The retry stays open for a while,
+                // so that the failed call's continuation runs while it does.
+                await retrying.wait()
             },
-            unsubscribe: { _ in }
+            unsubscribe: { _ in unsubscribed.increment() }
         )
         let repository = repository
         let repositoryID = repositoryID
-        let results = try await withTimeLimit {
+        try await withTimeLimit {
             async let first = Result { try await subscriptions.join(repository, repositoryID: repositoryID) }
             await started.wait()
             async let second = Result { try await subscriptions.join(repository, repositoryID: repositoryID) }
             try await Task.sleep(for: .milliseconds(100))
             release.open()
-            return await [first, second]
+            try await Task.sleep(for: .milliseconds(100))
+            retrying.open()
+            let (failed, retried) = await (first, second)
+            #expect(throws: LoreError.self) { try failed.get() }
+            // The waiting call finds no subscription and subscribes itself.
+            let stream = try retried.get()
+            #expect(await subscriptions.channel(for: repositoryID) != nil)
+            withExtendedLifetime(stream) {}
         }
-        for result in results {
-            #expect(throws: LoreError.self) { try result.get() }
-        }
-        // The waiting call finds no subscription and tries again itself.
         #expect(subscribed.value == 2)
-        #expect(await subscriptions.channel(for: repositoryID) == nil)
-        #expect(await subscriptions.unsubscribeCount == 0)
+        try await expectEventually { unsubscribed.value == 1 }
+    }
+
+    @Test func aChannelKeepsTheRepositoryPathAsItResolvedWhenItJoined() async throws {
+        let absolute = try await makeOfflineRepository()
+        let currentDirectory = FileManager.default.currentDirectoryPath
+        let relativePath = try #require(
+            absolute.path.hasPrefix(currentDirectory + "/")
+                ? String(absolute.path.dropFirst(currentDirectory.count + 1)) : nil,
+            "The scratch directory isn't under the current directory, \(currentDirectory)."
+        )
+        let relative = Repository(path: relativePath, options: absolute.options)
+        let paths = Recorder()
+        let subscriptions = NotificationSubscriptions(
+            subscribe: { channel in paths.append(channel.repository.path) },
+            unsubscribe: { channel in paths.append(channel.repository.path) }
+        )
+        try await withTimeLimit {
+            let stream = try await relative.notifications(from: subscriptions)
+            withExtendedLifetime(stream) {}
+        }
+        try await expectEventually { paths.values.count == 2 }
+        #expect(paths.values == [absolute.path, absolute.path])
     }
 }
 
@@ -342,12 +400,15 @@ extension Result where Failure == any Error {
         )
 
         try await bob.switchBranch(to: "main")
+        // Each notification arrives before the next operation,
+        // so the lock can't be reported as the unlock.
         try await bob.lock(["a.txt"])
-        try await bob.unlock(["a.txt"])
         #expect(
             try await collector.first { $0 == .filesLocked(paths: ["a.txt"], branchID: mainID, userID: "<unknown>") }
                 != nil
         )
+        #expect(!collector.notifications.contains { if case .filesUnlocked = $0 { true } else { false } })
+        try await bob.unlock(["a.txt"])
         #expect(
             try await collector.first { $0 == .filesUnlocked(paths: ["a.txt"], branchID: mainID, userID: "<unknown>") }
                 != nil

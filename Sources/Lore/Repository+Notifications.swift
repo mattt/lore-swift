@@ -70,8 +70,18 @@ extension Repository {
     /// - Throws: ``LoreError`` if the library can't subscribe.
     ///   Lore 0.11.0 reports an offline repository with ``LoreError/Code/internal``.
     public func notifications() async throws -> AsyncStream<RepositoryNotification> {
-        let repositoryID = try await state().repositoryID
-        return try await NotificationSubscriptions.shared.join(self, repositoryID: repositoryID)
+        try await notifications(from: .shared)
+    }
+
+    /// Joins a repository's subscription in the given subscriptions.
+    func notifications(from subscriptions: NotificationSubscriptions) async throws -> AsyncStream<
+        RepositoryNotification
+    > {
+        // The subscription outlives this call,
+        // so the library calls that start and end it use the path as it resolves now.
+        let repository = Repository(path: absolutePath, options: options)
+        let repositoryID = try await repository.state().repositoryID
+        return try await subscriptions.join(repository, repositoryID: repositoryID)
     }
 }
 
