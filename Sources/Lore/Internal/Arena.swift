@@ -1,4 +1,5 @@
 import CLore
+import Foundation
 
 /// Memory for the arguments of one call to the C library.
 ///
@@ -65,6 +66,18 @@ final class Arena {
             buffer[index] = string(value)
         }
         return lore_string_array_t(ptr: buffer, count: UInt(values.count))
+    }
+
+    /// Copies bytes into a library byte slice.
+    ///
+    /// Empty data becomes a null pointer with length 0.
+    func bytes(_ data: Data) -> lore_bytes_t {
+        guard !data.isEmpty else {
+            return lore_bytes_t(ptr: nil, len: 0)
+        }
+        let buffer = allocate(UInt8.self, count: data.count)
+        data.copyBytes(to: buffer, count: data.count)
+        return lore_bytes_t(ptr: UnsafeRawPointer(buffer), len: UInt(data.count))
     }
 
     /// Copies values into a buffer and returns its address and count.
