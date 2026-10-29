@@ -182,6 +182,195 @@ extension Repository {
     }
 }
 
+// MARK: - Finding revisions
+
+extension Repository {
+    /// Returns the newest revision of the current branch
+    /// with a metadata value for a key.
+    ///
+    /// The search starts at the latest revision of the current branch,
+    /// on the server unless the repository is offline,
+    /// and follows the first parent of each revision,
+    /// so it continues into the history of the branch
+    /// that the current branch was created from.
+    ///
+    /// Lore reads the stored bytes of each value as text,
+    /// so `value` matches ``MetadataValue/string(_:)`` values,
+    /// such as the `message` that Lore records for every revision.
+    /// Without a `value`,
+    /// a revision matches if the bytes of its value for the key are valid UTF-8,
+    /// which every string value is,
+    /// and a value of another type can be.
+    ///
+    /// - Parameters:
+    ///   - key: The metadata key.
+    ///   - value: The text to match,
+    ///     or `nil` to match any value for the key that reads as text.
+    /// - Returns: The revision, with its metadata,
+    ///   or `nil` if no revision matches.
+    /// - Throws: ``LoreError`` if the library can't search,
+    ///   or ``LoreError/Code/invalidArguments`` for an empty key.
+    public func findRevision(withMetadataKey key: String, value: String? = nil) async throws -> Revision? {
+        guard !key.isEmpty else {
+            throw LoreError(code: .invalidArguments, message: "The metadata key is empty.")
+        }
+        return try await findRevision { arguments, arena in
+            arguments.pointee.key = arena.string(key)
+            arguments.pointee.value = arena.string(value)
+        }
+    }
+
+    /// Returns the revision with a number
+    /// in the history of the current branch.
+    ///
+    /// The search starts at the latest revision of the current branch,
+    /// on the server unless the repository is offline,
+    /// and follows the first parent of each revision,
+    /// so it continues into the history of the branch
+    /// that the current branch was created from,
+    /// where ``RevisionSpecifier/number(_:on:)`` names only
+    /// the revisions of one branch.
+    ///
+    /// - Parameter number: The number of the revision.
+    /// - Returns: The revision, with its metadata,
+    ///   or `nil` if the history has no revision with the number.
+    /// - Throws: ``LoreError`` if the library can't search,
+    ///   or ``LoreError/Code/invalidArguments``
+    ///   if `number` is less than 1.
+    public func findRevision(numbered number: Int) async throws -> Revision? {
+        // The library reads a number of 0 as no search.
+        guard number >= 1 else {
+            throw LoreError(code: .invalidArguments, message: "The revision number must be at least 1, not \(number).")
+        }
+        return try await findRevision { arguments, _ in
+            arguments.pointee.number = UInt64(number)
+        }
+    }
+
+    private func findRevision(
+        configure: (UnsafeMutablePointer<lore_revision_find_args_t>, Arena) -> Void
+    ) async throws -> Revision? {
+        let found: [RevisionID?]
+        do {
+            found = try await perform(
+                lore_revision_find_async,
+                configure: configure,
+                transform: { event -> RevisionID?? in
+                    guard event.pointee.tag == LORE_EVENT_REVISION_FIND.rawValue else {
+                        return nil
+                    }
+                    return .some(RevisionID(event.pointee.revision_find.signature))
+                }
+            )
+        } catch let error as LoreError where error.code == .internal && error.message == "no revision found" {
+            // Lore 0.11.0 reports a search without a match as an internal error.
+            return nil
+        }
+        guard let id = found.last else {
+            throw LoreError.missingEvent("a revision")
+        }
+        guard let id else {
+            return nil
+        }
+        return try await revision(.id(id))
+    }
+}
+
+// MARK: - Bisecting
+
+/// One step of a search for the revision that introduced a change.
+public struct BisectStep: Sendable, Hashable {
+    /// The revision halfway between the start and the end of the range,
+    /// which the working directory now holds.
+    ///
+    /// When the search ``isFinished``, it's the end of the range:
+    /// the first revision with the change.
+    public var revision: Revision
+
+    /// The number of the revision at the start of the range.
+    public var startNumber: Int
+
+    /// The number of the revision at the end of the range.
+    public var endNumber: Int
+
+    /// A Boolean value that indicates whether the end of the range
+    /// is the child of its start,
+    /// so the end is the first revision with the change.
+    public var isFinished: Bool
+}
+
+extension Repository {
+    /// Takes one step of a search for the revision that introduced a change,
+    /// syncing the working directory to the revision halfway between two revisions.
+    ///
+    /// The search follows the first parent of each revision
+    /// from `end` back to `start`.
+    /// Test the working directory after each step,
+    /// then take the next step with the half of the range that has the change,
+    /// until the step ``BisectStep/isFinished``:
+    ///
+    /// ```swift
+    /// var start: RevisionSpecifier = "main@1"
+    /// var end: RevisionSpecifier = .latest()
+    /// while true {
+    ///     let step = try await repository.bisect(between: start, and: end)
+    ///     if step.isFinished {
+    ///         print("Introduced by revision", step.revision.number)
+    ///         break
+    ///     }
+    ///     if try hasChange() {
+    ///         end = .id(step.revision.id)
+    ///     } else {
+    ///         start = .id(step.revision.id)
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - start: A revision without the change.
+    ///   - end: A later revision with the change,
+    ///     whose first-parent history includes `start`.
+    /// - Returns: The step, with the revision that the working directory holds.
+    /// - Throws: ``LoreError`` if the library can't take the step,
+    ///   such as ``LoreError/Code/revisionNotFound``
+    ///   or ``LoreError/Code/localModifications``.
+    ///   Lore 0.11.0 reports a `start` that isn't in the history of `end`,
+    ///   including the same revision,
+    ///   with ``LoreError/Code/internal``.
+    public func bisect(between start: RevisionSpecifier, and end: RevisionSpecifier) async throws -> BisectStep {
+        let steps = try await perform(
+            lore_revision_bisect_async,
+            configure: { (arguments: UnsafeMutablePointer<lore_revision_bisect_args_t>, arena) in
+                arguments.pointee.start = arena.string(start.rawValue)
+                arguments.pointee.end = arena.string(end.rawValue)
+            },
+            transform: { event -> (start: Int, end: Int, isFinished: Bool)? in
+                guard event.pointee.tag == LORE_EVENT_REVISION_BISECT.rawValue else {
+                    return nil
+                }
+                let data = event.pointee.revision_bisect
+                return (
+                    Int(clamping: data.start_revision_number),
+                    Int(clamping: data.end_revision_number),
+                    Bool(data.done)
+                )
+            }
+        )
+        guard let step = steps.last else {
+            throw LoreError.missingEvent("a bisect step")
+        }
+        // The bisect syncs this repository and any links,
+        // whose sync events don't all say which repository they describe,
+        // so the binding reads the revision that the working directory holds.
+        return BisectStep(
+            revision: try await revision(),
+            startNumber: step.start,
+            endNumber: step.end,
+            isFinished: step.isFinished
+        )
+    }
+}
+
 // MARK: - Revision metadata
 
 extension Repository {

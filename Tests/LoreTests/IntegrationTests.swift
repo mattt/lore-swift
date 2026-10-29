@@ -248,6 +248,40 @@ import Testing
         #expect(try await clone.branches().map(\.name) == ["main", "main"])
     }
 
+    @Test func findRevisionSearchesFromTheLatestRevisionOnTheServer() async throws {
+        let (alice, bob) = try await makeClones()
+        try bob.write("bob\n", to: "a.txt")
+        try await bob.stage(["a.txt"])
+        let pushed = try await bob.commit(message: "Bob")
+        try await bob.push()
+
+        // Alice hasn't synced, so her current revision is the first one.
+        #expect(try await alice.revision().number == 1)
+        #expect(try await alice.findRevision(withMetadataKey: "message", value: "Bob")?.id == pushed.id)
+        #expect(try await alice.findRevision(numbered: 2)?.id == pushed.id)
+    }
+
+    @Test func obliterateRemovesContentFromTheServer() async throws {
+        let (repository, url) = try await makePublishedRepository()
+        let stored = try #require(try await repository.storedContent(of: "a.txt"))
+        let result = try await repository.obliterate("a.txt")
+        #expect(result.address == stored.address)
+        // Online, the local store removed the fragment but no payload.
+        #expect(result.fragmentCount == 1)
+        #expect(result.payloadCount == 0)
+
+        // The pushed revision no longer has the content of its file.
+        let error = await #expect(throws: LoreError.self) {
+            try await Repository.clone(
+                from: url,
+                to: temporaryRepositoryPath("obliterated-clone"),
+                options: Repository.Options(identity: "bob@example.com")
+            )
+        }
+        #expect(error?.code == .internal)
+        #expect(error?.message.contains(stored.address.description) == true)
+    }
+
     /// Returns a published repository and a clone of it.
     private func makeClones() async throws -> (alice: Repository, bob: Repository) {
         let (alice, url) = try await makePublishedRepository()

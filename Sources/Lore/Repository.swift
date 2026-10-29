@@ -1,4 +1,5 @@
 import CLore
+import Foundation
 
 /// A Lore repository in a local directory.
 ///
@@ -20,6 +21,9 @@ import CLore
 /// Methods that take a revision take a ``RevisionSpecifier``.
 public struct Repository: Sendable, Hashable {
     /// The path of the repository directory.
+    ///
+    /// Operations resolve a relative path
+    /// against the current directory of the process.
     public var path: String
 
     /// The options that the operations on this repository use.
@@ -91,14 +95,28 @@ extension Repository {
     ) -> UnsafeMutablePointer<lore_global_args_t> {
         let globals = arena.allocate(lore_global_args_t.self)
         globals.pointee.force = UInt8(force)
-        globals.pointee.repository_path = arena.string(path)
-        globals.pointee.working_directory = arena.string(path)
+        // The library resolves a relative repository path
+        // against the working directory,
+        // so both are absolute.
+        let directory = absolutePath
+        globals.pointee.repository_path = arena.string(directory)
+        globals.pointee.working_directory = arena.string(directory)
         globals.pointee.identity = arena.string(options.identity)
         globals.pointee.offline = UInt8(options.isOffline || offline)
         if let maximumConnections = options.maximumConnections {
             globals.pointee.max_connections = UInt32(clamping: maximumConnections)
         }
         return globals
+    }
+
+    /// The path of the repository directory,
+    /// resolved against the current directory of the process if it's relative,
+    /// or the empty string for an empty path.
+    var absolutePath: String {
+        guard !path.isEmpty else {
+            return ""
+        }
+        return URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
     }
 
     /// Starts an operation on this repository and waits for it to end.

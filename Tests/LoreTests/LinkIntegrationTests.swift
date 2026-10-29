@@ -644,4 +644,51 @@ import Testing
         }
         #expect(missing?.code == .layerNotFound)
     }
+
+    @Test func bisectAndAuditWithALink() async throws {
+        let (library, app, url) = try await makeLibraryAndApp()
+        let libraryID = try await library.info().id
+        let appID = try await app.state().repositoryID
+        let libraryFirst = try await library.revision()
+        try await app.addLink(to: url, at: "vendor/library")
+        try await app.commit(message: "Link")
+        try app.write("a2\n", to: "a.txt")
+        try await app.stage(["a.txt"])
+        let three = try await app.commit(message: "A2")
+        try app.write("x2\n", to: "vendor/library/x.txt")
+        try await app.stage(["vendor/library/x.txt"])
+        let four = try await app.commit(message: "X2")
+        #expect(four.number == 4)
+
+        // The bisect syncs the link to the revision that app@3 pins.
+        let step = try await app.bisect(between: "main@1", and: "main@4")
+        #expect(step.revision == three)
+        #expect(step.startNumber == 1 && step.endNumber == 4 && !step.isFinished)
+        #expect(try app.read("vendor/library/x.txt") == "x1\n")
+
+        // The lines of a linked file come from the linked repository.
+        #expect(
+            try await app.audit("vendor/library/x.txt") == [
+                LineAttribution(
+                    lines: 1 ... 1,
+                    revision: libraryFirst.id,
+                    repositoryID: libraryID,
+                    outcome: .attributed
+                )
+            ]
+        )
+        #expect(
+            try await app.audit("a.txt") == [
+                LineAttribution(lines: 1 ... 1, revision: three.id, repositoryID: appID, outcome: .attributed)
+            ]
+        )
+        try await app.sync()
+        let pinned = try #require(try await app.links().first?.revision)
+        #expect(pinned != libraryFirst.id)
+        #expect(
+            try await app.audit("vendor/library/x.txt") == [
+                LineAttribution(lines: 1 ... 1, revision: pinned, repositoryID: libraryID, outcome: .attributed)
+            ]
+        )
+    }
 }

@@ -125,6 +125,35 @@ extension Repository {
         )
     }
 
+    /// Stages the move of a file that you moved in the working directory.
+    ///
+    /// Staging both paths of a moved file with ``stage(_:scanning:)``
+    /// stages a deletion and an addition;
+    /// this method stages a move from `source`,
+    /// which the next commit records.
+    ///
+    /// - Parameters:
+    ///   - source: The path that the file moved from,
+    ///     relative to the repository directory.
+    ///   - destination: The path that the file moved to,
+    ///     relative to the repository directory.
+    /// - Throws: ``LoreError`` if the library can't stage the move,
+    ///   such as ``LoreError/Code/nodeNotFound``
+    ///   for a source that the repository doesn't track.
+    ///   Lore 0.11.0 reports a destination
+    ///   that isn't in the working directory
+    ///   with ``LoreError/Code/internal``.
+    public func stageMove(from source: String, to destination: String) async throws {
+        _ = try await perform(
+            lore_file_stage_move_async,
+            configure: { (arguments: UnsafeMutablePointer<lore_file_stage_move_args_t>, arena) in
+                arguments.pointee.from_path = arena.string(source)
+                arguments.pointee.to_path = arena.string(destination)
+            },
+            transform: { _ -> Never? in nil }
+        )
+    }
+
     /// Commits the staged changes as a new revision on the current branch.
     ///
     /// The new revision is local

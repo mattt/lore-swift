@@ -183,4 +183,293 @@ import Testing
         #expect(try repository.read("a.txt") == "one\n")
         #expect(try await repository.status().files.map(\.path) == ["a.txt"])
     }
+
+    @Test func stageMoveStagesAMove() async throws {
+        let repository = try await repositoryWithTwoRevisions()
+        try FileManager.default.moveItem(atPath: "\(repository.path)/b.txt", toPath: "\(repository.path)/c.txt")
+        try await repository.stageMove(from: "b.txt", to: "c.txt")
+        let status = try await repository.status()
+        #expect(status.files.map(\.path) == ["c.txt"])
+        #expect(status.files.first?.previousPath == "b.txt")
+        #expect(status.files.first?.action == .move)
+        #expect(status.files.first?.isStaged == true)
+
+        let revision = try await repository.commit(message: "Move")
+        #expect(
+            try await repository.changes(from: "main@2", to: .id(revision.id))
+                == [FileChange(path: "c.txt", previousPath: "b.txt", action: .move, kind: .file)]
+        )
+
+        let untracked = await #expect(throws: LoreError.self) {
+            try await repository.stageMove(from: "missing.txt", to: "d.txt")
+        }
+        #expect(untracked?.code == .nodeNotFound)
+        let notOnDisk = await #expect(throws: LoreError.self) {
+            try await repository.stageMove(from: "a.txt", to: "d.txt")
+        }
+        #expect(notOnDisk?.code == .internal)
+    }
+}
+
+@Suite struct DirtyFileTests {
+    /// Returns an offline repository with one revision that adds `a.txt` and `b.txt`.
+    private func repository() async throws -> Repository {
+        let repository = try await makeOfflineRepository()
+        try repository.write("one\n", to: "a.txt")
+        try repository.write("bee\n", to: "b.txt")
+        try await repository.stage(["."])
+        try await repository.commit(message: "One")
+        return repository
+    }
+
+    /// Returns the files that a status without a scan reports, by path.
+    private func unscannedFiles(_ repository: Repository) async throws -> [String: FileStatus] {
+        Dictionary(uniqueKeysWithValues: try await repository.status(scanning: false).files.map { ($0.path, $0) })
+    }
+
+    @Test func markDirtyReportsChangesWithoutAScan() async throws {
+        let repository = try await repository()
+        try repository.write("changed\n", to: "a.txt")
+        try repository.write("new\n", to: "c.txt")
+        try FileManager.default.removeItem(atPath: "\(repository.path)/b.txt")
+        #expect(try await repository.status(scanning: false).files.isEmpty)
+
+        try await repository.markDirty(["a.txt", "b.txt", "c.txt", "missing.txt", "/etc/hosts", ".lore/config.toml"])
+        let files = try await unscannedFiles(repository)
+        #expect(Set(files.keys) == ["a.txt", "b.txt", "c.txt"])
+        #expect(files["a.txt"]?.action == .keep)
+        #expect(files["b.txt"]?.action == .delete)
+        #expect(files["c.txt"]?.action == .add)
+        #expect(files.values.allSatisfy { $0.isDirty && !$0.isStaged })
+
+        // Marking doesn't stage the content.
+        let error = await #expect(throws: LoreError.self) {
+            try await repository.commit(message: "Two")
+        }
+        #expect(error?.code == .nothingStaged)
+        try await repository.stage(["a.txt"], scanning: false)
+        let revision = try await repository.commit(message: "Two")
+        #expect(try await repository.changes(in: .id(revision.id)).map(\.path) == ["a.txt"])
+    }
+
+    @Test func markDirtyRevertsAnAddAndSkipsIgnoredFiles() async throws {
+        let repository = try await repository()
+        try repository.write("new\n", to: "c.txt")
+        try await repository.markDirty(["c.txt"])
+        #expect(try await unscannedFiles(repository)["c.txt"]?.action == .add)
+
+        // A file that's gone from the working directory and the revision
+        // loses its mark.
+        try FileManager.default.removeItem(atPath: "\(repository.path)/c.txt")
+        try await repository.markDirty(["c.txt"])
+        #expect(try await unscannedFiles(repository).isEmpty)
+
+        try repository.write("*.log\n", to: ".loreignore")
+        try repository.write("log\n", to: "debug.log")
+        try await repository.markDirty(["debug.log"])
+        #expect(try await unscannedFiles(repository).isEmpty)
+    }
+
+    @Test func markMovedRecordsAMoveThatTheNextCommitRecords() async throws {
+        let repository = try await repository()
+        try FileManager.default.moveItem(atPath: "\(repository.path)/b.txt", toPath: "\(repository.path)/c.txt")
+        try await repository.markMoved(from: "b.txt", to: "c.txt")
+        let files = try await unscannedFiles(repository)
+        #expect(Array(files.keys) == ["c.txt"])
+        #expect(files["c.txt"]?.previousPath == "b.txt")
+        #expect(files["c.txt"]?.action == .move)
+        #expect(files["c.txt"]?.isStaged == false)
+
+        let revision = try await repository.commit(message: "Move")
+        #expect(
+            try await repository.changes(from: "main@1", to: .id(revision.id))
+                == [FileChange(path: "c.txt", previousPath: "b.txt", action: .move, kind: .file)]
+        )
+
+        let error = await #expect(throws: LoreError.self) {
+            try await repository.markMoved(from: "missing.txt", to: "d.txt")
+        }
+        #expect(error?.code == .nodeNotFound)
+    }
+
+    @Test func markCopiedReportsAnAddedFile() async throws {
+        let repository = try await repository()
+        try FileManager.default.copyItem(atPath: "\(repository.path)/b.txt", toPath: "\(repository.path)/c.txt")
+        try await repository.markCopied(from: "b.txt", to: "c.txt")
+        let files = try await unscannedFiles(repository)
+        #expect(Array(files.keys) == ["c.txt"])
+        #expect(files["c.txt"]?.action == .add)
+        #expect(files["c.txt"]?.previousPath == nil)
+
+        let error = await #expect(throws: LoreError.self) {
+            try await repository.markCopied(from: "missing.txt", to: "d.txt")
+        }
+        #expect(error?.code == .nodeNotFound)
+    }
+}
+
+@Suite struct AuditTests {
+    /// Returns an offline repository with two revisions of `a.txt`:
+    /// the first adds three lines, and the second changes the second line and adds a fourth.
+    private func repository() async throws -> (Repository, [Revision]) {
+        let repository = try await makeOfflineRepository()
+        var revisions: [Revision] = []
+        for text in ["one\ntwo\nthree\n", "one\nTWO\nthree\nfour\n"] {
+            try repository.write(text, to: "a.txt")
+            try await repository.stage(["a.txt"])
+            revisions.append(try await repository.commit(message: "Revision \(revisions.count + 1)"))
+        }
+        return (repository, revisions)
+    }
+
+    @Test func auditAttributesLinesToRevisions() async throws {
+        let (repository, revisions) = try await repository()
+        let repositoryID = try await repository.state().repositoryID
+        let attributions = try await repository.audit("a.txt")
+        #expect(
+            attributions == [
+                LineAttribution(
+                    lines: 1 ... 1,
+                    revision: revisions[0].id,
+                    repositoryID: repositoryID,
+                    outcome: .attributed
+                ),
+                LineAttribution(
+                    lines: 2 ... 2,
+                    revision: revisions[1].id,
+                    repositoryID: repositoryID,
+                    outcome: .attributed
+                ),
+                LineAttribution(
+                    lines: 3 ... 3,
+                    revision: revisions[0].id,
+                    repositoryID: repositoryID,
+                    outcome: .attributed
+                ),
+                LineAttribution(
+                    lines: 4 ... 4,
+                    revision: revisions[1].id,
+                    repositoryID: repositoryID,
+                    outcome: .attributed
+                ),
+            ]
+        )
+        // Consecutive lines with the same revision form one range.
+        #expect(
+            try await repository.audit("a.txt", revision: "main@1") == [
+                LineAttribution(
+                    lines: 1 ... 3,
+                    revision: revisions[0].id,
+                    repositoryID: repositoryID,
+                    outcome: .attributed
+                )
+            ]
+        )
+    }
+
+    @Test func auditReportsUncommittedLines() async throws {
+        let (repository, revisions) = try await repository()
+        try repository.write("one\nTWO\nthree \nfour\nfive\n", to: "a.txt")
+
+        let attributions = try await repository.audit("a.txt")
+        #expect(attributions.map(\.lines) == [1 ... 1, 2 ... 2, 3 ... 3, 4 ... 4, 5 ... 5])
+        #expect(attributions.map(\.outcome) == [.attributed, .attributed, .attributed, .attributed, .uncommitted])
+        #expect(attributions[2].revision == revisions[0].id)
+        #expect(attributions[4].revision == nil)
+
+        let strict = try await repository.audit("a.txt", ignoringTrailingWhitespace: false)
+        #expect(strict.map(\.outcome) == [.attributed, .attributed, .uncommitted, .attributed, .uncommitted])
+    }
+
+    @Test func auditHonorsTheRevisionLimit() async throws {
+        let (repository, _) = try await repository()
+        for text in ["ONE\nTWO\nthree\nfour\n", "ONE\nTWO\nTHREE\nfour\n"] {
+            try repository.write(text, to: "a.txt")
+            try await repository.stage(["a.txt"])
+            try await repository.commit(message: "Another revision")
+        }
+        let limited = try await repository.audit("a.txt", revisionLimit: 1)
+        #expect(limited.flatMap(\.lines) == [1, 2, 3, 4])
+        let unresolved = limited.filter { $0.outcome == .revisionLimitReached }
+        #expect(!unresolved.isEmpty)
+        #expect(unresolved.allSatisfy { $0.revision == nil })
+
+        let whole = try await repository.audit("a.txt", revisionLimit: nil)
+        #expect(whole.flatMap(\.lines) == [1, 2, 3, 4])
+        #expect(whole.allSatisfy { $0.outcome == .attributed })
+        #expect(try await repository.audit("a.txt") == whole)
+
+        let error = await #expect(throws: LoreError.self) {
+            try await repository.audit("a.txt", revisionLimit: 0)
+        }
+        #expect(error?.code == .invalidArguments)
+    }
+
+    @Test func auditCanIgnoreChangesInWhitespace() async throws {
+        let repository = try await makeOfflineRepository()
+        try repository.write("a  b\nc\n", to: "a.txt")
+        try await repository.stage(["a.txt"])
+        let revision = try await repository.commit(message: "One")
+        try repository.write("a b\nc\n", to: "a.txt")
+
+        #expect(try await repository.audit("a.txt").map(\.outcome) == [.uncommitted, .attributed])
+        let ignoring = try await repository.audit("a.txt", ignoringWhitespaceChanges: true)
+        #expect(ignoring.map(\.lines) == [1 ... 2])
+        #expect(ignoring.map(\.outcome) == [.attributed])
+        #expect(ignoring.map(\.revision) == [revision.id])
+    }
+
+    @Test func auditReportsAnObliteratedEarlierVersion() async throws {
+        let (repository, revisions) = try await repository()
+        // The third revision changes only line 4,
+        // which the audit can attribute without reading the first version.
+        try repository.write("one\nTWO\nthree\nFOUR\n", to: "a.txt")
+        try await repository.stage(["a.txt"])
+        let third = try await repository.commit(message: "Revision 3")
+        // Obliterate the first version of a.txt, whose content is "one\ntwo\nthree\n".
+        // A file keeps its context across versions.
+        let current = try #require(try await repository.storedContent(of: "a.txt"))
+        let copy = scratchDirectory.appending(path: "audit-\(UUID().uuidString.prefix(8)).txt").path
+        try await repository.writeContents(of: "a.txt", revision: "main@1", to: copy)
+        let hash = try #require(try await repository.contentHashes(of: [copy]).first?.hash)
+        let first = try #require(ContentAddress(hash: hash, context: current.address.context))
+        #expect(try await repository.storedContent(at: first) != nil)
+        try await repository.obliterate(contentAt: first)
+
+        // Lore 0.11.0 reports the lines that need the removed version
+        // as unavailable, not as obliterated.
+        let repositoryID = try await repository.state().repositoryID
+        #expect(
+            try await repository.audit("a.txt") == [
+                LineAttribution(
+                    lines: 1 ... 3,
+                    revision: nil,
+                    repositoryID: repositoryID,
+                    outcome: .contentUnavailable
+                ),
+                LineAttribution(lines: 4 ... 4, revision: third.id, repositoryID: repositoryID, outcome: .attributed),
+            ]
+        )
+        // The version at the second revision is still there.
+        try await repository.writeContents(
+            of: "a.txt",
+            revision: .id(revisions[1].id),
+            to: copy,
+            replacingExistingFile: true
+        )
+        #expect(try String(contentsOfFile: copy, encoding: .utf8) == "one\nTWO\nthree\nfour\n")
+    }
+
+    @Test func auditOfMissingAndEmptyFiles() async throws {
+        let (repository, _) = try await repository()
+        let error = await #expect(throws: LoreError.self) {
+            try await repository.audit("missing.txt")
+        }
+        #expect(error?.code == .fileNotFound)
+
+        try repository.write("", to: "empty.txt")
+        try await repository.stage(["empty.txt"])
+        try await repository.commit(message: "Empty")
+        #expect(try await repository.audit("empty.txt").isEmpty)
+    }
 }

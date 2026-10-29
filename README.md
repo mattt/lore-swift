@@ -179,6 +179,23 @@ print("Locked", result.acquired)
 try await repository.unlock(["hero.png"])
 ```
 
+### Watching the server for changes
+
+```swift
+for await notification in try await repository.notifications() {
+    switch notification {
+    case .branchPushed(_, let revisionID, _, let userID):
+        print(userID, "pushed", revisionID)
+    case .filesLocked(let paths, _, let userID):
+        print(userID, "locked", paths)
+    default:
+        break
+    }
+}
+```
+
+The subscription ends when the loop ends or its task is cancelled.
+
 ### Logging in
 
 ```swift
@@ -238,22 +255,25 @@ so it must return promptly.
 | Status | `lore_repository_status_async` | `status(of:scanning:)` |
 | Repository | `lore_repository_info_async` | `info()` |
 | Repository metadata | `lore_repository_metadata_get_async`, `lore_repository_metadata_set_async`, `lore_repository_metadata_clear_async` | `repositoryMetadata()`, `repositoryMetadata(forKey:)`, `setRepositoryMetadata(_:)`, `clearRepositoryMetadata(keys:)` |
-| Stage | `lore_file_stage_async`, `lore_file_unstage_async`, `lore_file_reset_async` | `stage(_:scanning:)`, `unstage(_:)`, `reset(_:to:deletingUntrackedFiles:)` |
+| Stage | `lore_file_stage_async`, `lore_file_stage_move_async`, `lore_file_unstage_async`, `lore_file_reset_async` | `stage(_:scanning:)`, `stageMove(from:to:)`, `unstage(_:)`, `reset(_:to:deletingUntrackedFiles:)` |
+| Dirty files | `lore_file_dirty_async`, `lore_file_dirty_move_async`, `lore_file_dirty_copy_async` | `markDirty(_:)`, `markMoved(from:to:)`, `markCopied(from:to:)` |
 | Commit | `lore_revision_commit_async`, `lore_revision_amend_async`, `lore_revision_restore_async` | `commit(message:linkMessages:)`, `amend(message:)`, `restore(message:)` |
 | Push | `lore_branch_push_async` | `push(branch:allowingFastForward:)`, `pushUpdates` |
 | Sync | `lore_revision_sync_async` | `sync(to:discardingLocalChanges:)`, `syncUpdates` |
-| Revisions | `lore_revision_history_async`, `lore_revision_info_async`, `lore_revision_diff_async` | `history(from:on:since:limit:stoppingAtBranchPoint:)`, `revision(_:)`, `changes(in:)`, `changes(from:to:paths:)` |
+| Revisions | `lore_revision_history_async`, `lore_revision_info_async`, `lore_revision_diff_async`, `lore_revision_find_async`, `lore_revision_bisect_async` | `history(from:on:since:limit:stoppingAtBranchPoint:)`, `revision(_:)`, `changes(in:)`, `changes(from:to:paths:)`, `findRevision(withMetadataKey:value:)`, `findRevision(numbered:)`, `bisect(between:and:)` |
 | Revision metadata | `lore_revision_metadata_get_async`, `lore_revision_metadata_list_async`, `lore_revision_metadata_set_async`, `lore_revision_metadata_clear_async` | `revisionMetadata(forKey:of:)`, `revisionMetadata(of:)`, `setRevisionMetadata(_:)`, `clearRevisionMetadata()` |
 | Branches | `lore_branch_list_async`, `lore_branch_create_async`, `lore_branch_switch_async`, `lore_branch_info_async`, `lore_branch_archive_async`, `lore_branch_protect_async`, `lore_branch_unprotect_async`, `lore_branch_reset_async`, `lore_branch_latest_list_async` | `branches(includingArchived:)`, `createBranch(named:category:)`, `switchBranch(to:revision:discardingLocalChanges:)`, `branchInfo(named:inLinkAt:)`, `archiveBranch(named:includingLinks:includingLayers:)`, `protectBranch(named:)`, `unprotectBranch(named:)`, `resetBranch(named:to:)`, `latestRevisions(on:limit:)` |
 | Branch metadata | `lore_branch_metadata_get_async`, `lore_branch_metadata_set_async`, `lore_branch_metadata_clear_async` | `branchMetadata(of:)`, `branchMetadata(forKey:of:)`, `setBranchMetadata(_:of:)`, `clearBranchMetadata(keys:of:)` |
 | Merges | `lore_branch_merge_start_async`, `lore_branch_merge_into_async`, `lore_branch_diff_async`, `lore_file_stage_merge_async`, `lore_file_reset_to_last_merged_async` | `mergeBranch(named:message:committing:linkMessages:includingLinks:)`, `mergeBranch(into:message:)`, `branchDiff(merging:into:path:mergingAutomatically:)`, `stageMerged(_:)`, `reset(_:toLastMergeFrom:keeping:deletingUntrackedFiles:)` |
 | Reverts and cherry-picks | `lore_revision_revert_async`, `lore_revision_cherry_pick_async` | `revert(_:message:committing:)`, `cherryPick(_:message:committing:)` |
 | Conflicts | `lore_branch_merge_resolve_async`, `lore_branch_merge_resolve_mine_async`, `lore_branch_merge_resolve_theirs_async`, `lore_branch_merge_unresolve_async`, `lore_branch_merge_restart_async`, `lore_branch_merge_abort_async`, `lore_revision_revert_resolve_async`, `lore_revision_revert_resolve_mine_async`, `lore_revision_revert_resolve_theirs_async`, `lore_revision_revert_unresolve_async`, `lore_revision_revert_restart_async`, `lore_revision_revert_abort_async` | `resolveConflicts(in:keeping:)`, `unresolveConflicts(in:)`, `restartMerge(of:)`, `abortMerge()` |
-| Files | `lore_file_history_async`, `lore_file_info_async`, `lore_file_diff_async` | `history(of:from:on:limit:)`, `fileInfo(of:revision:)`, `diff(of:from:to:contextLines:ignoringTrailingWhitespace:ignoringWhitespaceChanges:)` |
+| Files | `lore_file_history_async`, `lore_file_info_async`, `lore_file_diff_async`, `lore_file_audit_async` | `history(of:from:on:limit:)`, `fileInfo(of:revision:)`, `diff(of:from:to:contextLines:ignoringTrailingWhitespace:ignoringWhitespaceChanges:)`, `audit(_:revision:revisionLimit:ignoringTrailingWhitespace:ignoringWhitespaceChanges:)` |
+| File content | `lore_file_hash_async`, `lore_file_dump_async`, `lore_file_write_async`, `lore_file_obliterate_async` | `contentHashes(of:)`, `storedContent(of:)`, `storedContent(at:)`, `writeContents(of:revision:to:replacingExistingFile:)`, `writeContents(at:to:replacingExistingFile:)`, `obliterate(_:)`, `obliterate(contentAt:)` |
 | File metadata | `lore_file_metadata_get_async`, `lore_file_metadata_list_async`, `lore_file_metadata_set_async`, `lore_file_metadata_clear_async` | `metadata(forKey:of:revision:)`, `metadata(of:revision:)`, `setMetadata(_:of:)`, `clearMetadata(of:)` |
 | File dependencies | `lore_file_dependency_add_async`, `lore_file_dependency_list_async`, `lore_file_dependency_remove_async` | `addDependencies(_:to:tags:allowingCycles:)`, `dependencies(of:revision:recursive:tags:depthLimit:)`, `dependents(of:revision:recursive:tags:depthLimit:)`, `removeDependencies(_:from:)` |
 | Authentication | `lore_auth_login_with_token_async`, `lore_auth_login_interactive_async`, `lore_auth_logout_async`, `lore_auth_clear_async`, `lore_auth_list_async`, `lore_auth_user_info_async`, `lore_auth_local_user_info_async` | `Authentication.logIn(token:type:server:)`, `Authentication.logIn(token:type:authenticationURL:)`, `Authentication.logInInteractively(server:)`, `Authentication.logOut(authenticationURL:userID:resource:)`, `Authentication.removeAllCredentials()`, `Authentication.credentials(includingTokens:)`, `Authentication.localUsers(withIDs:authenticationURL:includingTokens:)`, `logIn(token:type:)`, `logInInteractively()`, `logOut(userID:resource:)`, `users(withIDs:)`, `localUsers(withIDs:includingTokens:)`, `accessCredential()` |
 | Locks | `lore_lock_file_acquire_async`, `lore_lock_file_release_async`, `lore_lock_file_status_async`, `lore_lock_file_query_async` | `lock(_:branch:)`, `unlock(_:branch:)`, `locks(on:branch:)`, `locks(branch:owner:path:)` |
+| Notifications | `lore_notification_subscribe_async`, `lore_notification_unsubscribe_async` | `notifications()` |
 | Links | `lore_link_add_async`, `lore_link_remove_async`, `lore_link_update_async`, `lore_link_list_async`, `lore_link_info_async`, `lore_link_list_staged_async` | `addLink(to:at:sourcePath:pinnedTo:creatingBranches:)`, `removeLink(at:)`, `updateLink(at:to:)`, `links()`, `linkInfo(at:)`, `stagedLinks()` |
 | Layers | `lore_layer_add_async`, `lore_layer_remove_async`, `lore_layer_list_async` | `addLayer(from:at:sourcePath:matchingMetadataKey:)`, `removeLayer(at:sourceRepository:deletingUntrackedFiles:discardingLocalChanges:)`, `layers()` |
 

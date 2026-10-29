@@ -135,3 +135,57 @@ extension RepositoryID: LosslessStringConvertible {
         hexadecimal(bytes)
     }
 }
+
+/// The address of content in a repository's store:
+/// a 256-bit hash of the content and a 128-bit context.
+///
+/// Its ``description`` is the hash and the context
+/// as lowercase hexadecimal digits,
+/// separated by a hyphen.
+public struct ContentAddress: Sendable, Hashable {
+    /// The 32 bytes of the content hash.
+    public let hash: [UInt8]
+
+    /// The 16 bytes of the context.
+    public let context: [UInt8]
+
+    /// Creates an address from a 32-byte hash and a 16-byte context.
+    ///
+    /// Returns `nil` if `hash` doesn't hold exactly 32 bytes
+    /// or `context` doesn't hold exactly 16 bytes.
+    public init?(hash: [UInt8], context: [UInt8]) {
+        guard hash.count == 32, context.count == 16 else {
+            return nil
+        }
+        self.hash = hash
+        self.context = context
+    }
+
+    /// Creates an address from 64 hexadecimal digits for the hash,
+    /// a hyphen,
+    /// and 32 hexadecimal digits for the context.
+    ///
+    /// Returns `nil` if `description` doesn't have that form.
+    public init?(_ description: some StringProtocol) {
+        let parts = description.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 2,
+            let hash = decodeHexadecimal(parts[0]),
+            let context = decodeHexadecimal(parts[1])
+        else {
+            return nil
+        }
+        self.init(hash: hash, context: context)
+    }
+
+    /// Copies a library address.
+    init(_ address: lore_address_t) {
+        self.hash = tupleBytes(address.hash.data)
+        self.context = tupleBytes(address.context.data)
+    }
+}
+
+extension ContentAddress: LosslessStringConvertible {
+    public var description: String {
+        "\(hexadecimal(hash))-\(hexadecimal(context))"
+    }
+}
