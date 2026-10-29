@@ -235,7 +235,7 @@ print("Logged in as", user.name)
 try await repository.logOut(userID: user.id)
 ```
 
-`Authentication.logInInteractively(server:)` streams a URL
+`Authentication.logInInteractively(remote:)` streams a URL
 for the user to open and approve, instead of opening a browser.
 
 ### Linking another repository
@@ -309,7 +309,7 @@ so it must return promptly.
 | File content | `lore_file_hash_async`, `lore_file_dump_async`, `lore_file_write_async`, `lore_file_obliterate_async` | `contentHashes(of:)`, `storedContent(of:)`, `storedContent(at:)`, `writeContents(of:revision:to:replacingExistingFile:)`, `writeContents(at:to:replacingExistingFile:)`, `obliterate(_:)`, `obliterate(contentAt:)` |
 | File metadata | `lore_file_metadata_get_async`, `lore_file_metadata_list_async`, `lore_file_metadata_set_async`, `lore_file_metadata_clear_async` | `metadata(forKey:of:revision:)`, `metadata(of:revision:)`, `setMetadata(_:of:)`, `clearMetadata(of:)` |
 | File dependencies | `lore_file_dependency_add_async`, `lore_file_dependency_list_async`, `lore_file_dependency_remove_async` | `addDependencies(_:to:tags:allowingCycles:)`, `dependencies(of:revision:recursive:tags:depthLimit:)`, `dependents(of:revision:recursive:tags:depthLimit:)`, `removeDependencies(_:from:)` |
-| Authentication | `lore_auth_login_with_token_async`, `lore_auth_login_interactive_async`, `lore_auth_logout_async`, `lore_auth_clear_async`, `lore_auth_list_async`, `lore_auth_user_info_async`, `lore_auth_local_user_info_async` | `Authentication.logIn(token:type:server:)`, `Authentication.logIn(token:type:authenticationURL:)`, `Authentication.logInInteractively(server:)`, `Authentication.logOut(authenticationURL:userID:resource:)`, `Authentication.removeAllCredentials()`, `Authentication.credentials(includingTokens:)`, `Authentication.localUsers(withIDs:authenticationURL:includingTokens:)`, `logIn(token:type:)`, `logInInteractively()`, `logOut(userID:resource:)`, `users(withIDs:)`, `localUsers(withIDs:includingTokens:)`, `accessCredential()` |
+| Authentication | `lore_auth_login_with_token_async`, `lore_auth_login_interactive_async`, `lore_auth_logout_async`, `lore_auth_clear_async`, `lore_auth_list_async`, `lore_auth_user_info_async`, `lore_auth_local_user_info_async` | `Authentication.logIn(token:type:remote:)`, `Authentication.logIn(token:type:authenticationURL:)`, `Authentication.logInInteractively(remote:)`, `Authentication.logOut(authenticationURL:userID:resource:)`, `Authentication.removeAllCredentials()`, `Authentication.credentials(includingTokens:)`, `Authentication.localUsers(withIDs:authenticationURL:includingTokens:)`, `logIn(token:type:)`, `logInInteractively()`, `logOut(userID:resource:)`, `users(withIDs:)`, `localUsers(withIDs:includingTokens:)`, `accessCredential()` |
 | Locks | `lore_lock_file_acquire_async`, `lore_lock_file_release_async`, `lore_lock_file_status_async`, `lore_lock_file_query_async` | `lock(_:branch:)`, `unlock(_:branch:)`, `locks(on:branch:)`, `locks(branch:owner:path:)` |
 | Notifications | `lore_notification_subscribe_async`, `lore_notification_unsubscribe_async` | `notifications()` |
 | Links | `lore_link_add_async`, `lore_link_remove_async`, `lore_link_update_async`, `lore_link_list_async`, `lore_link_info_async`, `lore_link_list_staged_async` | `addLink(to:at:sourcePath:pinnedTo:creatingBranches:)`, `removeLink(at:)`, `updateLink(at:to:)`, `links()`, `linkInfo(at:)`, `stagedLinks()` |

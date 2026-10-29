@@ -74,7 +74,7 @@ public actor ContentStore {
 
     /// The URL of the server that the store connects to,
     /// or `nil` for a store without a server.
-    public nonisolated let serverURL: String?
+    public nonisolated let remote: String?
 
     /// The options that calls on the store use.
     public nonisolated let options: Repository.Options
@@ -96,14 +96,14 @@ public actor ContentStore {
     init(
         repository: Repository?,
         repositoryID: RepositoryID?,
-        serverURL: String?,
+        remote: String?,
         options: Repository.Options,
         handleID: UInt64,
         onRelease: (@Sendable (LoreError?) -> Void)? = nil
     ) {
         self.repository = repository
         self.repositoryID = repositoryID
-        self.serverURL = serverURL
+        self.remote = remote
         self.options = options
         self.handleID = handleID
         self.onRelease = onRelease
@@ -200,7 +200,7 @@ extension Repository {
     /// Call ``ContentStore/close()`` when you're done with it:
     /// until then, other processes that use the store wait.
     ///
-    /// - Parameter serverURL: The URL of a server,
+    /// - Parameter remote: The URL of a server,
     ///   such as the repository's ``ConfigurationKey/remoteURL``,
     ///   for calls that read or write content on the server,
     ///   or `nil` for a store that uses only the local store.
@@ -211,25 +211,25 @@ extension Repository {
     /// - Throws: ``LoreError`` if the library can't open the store,
     ///   such as ``LoreError/Code/repositoryNotFound``
     ///   for a directory that isn't a repository.
-    public func openStore(connectingTo serverURL: String? = nil) async throws -> ContentStore {
-        try await openStore(connectingTo: serverURL, onRelease: nil)
+    public func openStore(connectingTo remote: String? = nil) async throws -> ContentStore {
+        try await openStore(connectingTo: remote, onRelease: nil)
     }
 
     /// Opens the repository's store,
     /// with an operation that runs when the library closes the store, for tests.
     func openStore(
-        connectingTo serverURL: String?,
+        connectingTo remote: String?,
         onRelease: (@Sendable (LoreError?) -> Void)?
     ) async throws -> ContentStore {
         let repositoryID = try await state().repositoryID
         let directory = absolutePath
-        let handleID = try await ContentStore.open(caller: self, serverURL: serverURL) { arguments, arena in
+        let handleID = try await ContentStore.open(caller: self, remote: remote) { arguments, arena in
             arguments.pointee.repository_path = arena.string(directory)
         }
         return ContentStore(
             repository: self,
             repositoryID: repositoryID,
-            serverURL: serverURL,
+            remote: remote,
             options: options,
             handleID: handleID,
             onRelease: onRelease
@@ -246,7 +246,7 @@ extension ContentStore {
     /// so you can't load revision trees from it.
     ///
     /// - Parameters:
-    ///   - serverURL: The URL of a server
+    ///   - remote: The URL of a server
     ///     for calls that read or write content on the server,
     ///     or `nil` for a store without a server.
     ///     The store connects when a call first needs the server,
@@ -255,17 +255,17 @@ extension ContentStore {
     /// - Returns: The open store.
     /// - Throws: ``LoreError`` if the library can't open the store.
     public static func openInMemory(
-        connectingTo serverURL: String? = nil,
+        connectingTo remote: String? = nil,
         options: Repository.Options = Repository.Options()
     ) async throws -> ContentStore {
         let caller = Repository(path: "", options: options)
-        let handleID = try await open(caller: caller, serverURL: serverURL) { arguments, _ in
+        let handleID = try await open(caller: caller, remote: remote) { arguments, _ in
             arguments.pointee.in_memory = 1
         }
         return ContentStore(
             repository: nil,
             repositoryID: nil,
-            serverURL: serverURL,
+            remote: remote,
             options: options,
             handleID: handleID
         )
@@ -274,16 +274,16 @@ extension ContentStore {
     /// Opens a store and returns the library's identifier for it.
     fileprivate static func open(
         caller: Repository,
-        serverURL: String?,
+        remote: String?,
         configure: (UnsafeMutablePointer<lore_storage_open_args_t>, Arena) -> Void
     ) async throws -> UInt64 {
         let handles = try await caller.perform(
             lore_storage_open_async,
             configure: { (arguments: UnsafeMutablePointer<lore_storage_open_args_t>, arena) in
                 configure(arguments, arena)
-                if let serverURL {
+                if let remote {
                     arguments.pointee.has_remote_config = 1
-                    arguments.pointee.remote_config.remote_url = arena.string(serverURL)
+                    arguments.pointee.remote_config.remote_url = arena.string(remote)
                 }
             },
             transform: { event -> UInt64? in
@@ -770,7 +770,7 @@ extension ContentStore {
     ///   The other side, such as the local store, may already have removed it.
     @discardableResult
     public func obliterate(_ address: ContentAddress, in partition: RepositoryID) async throws -> ObliterateResult {
-        let hasServer = serverURL != nil
+        let hasServer = remote != nil
         let events = try await call(
             lore_storage_obliterate_async,
             configure: { (arguments: UnsafeMutablePointer<lore_storage_obliterate_args_t>, handle, arena) in

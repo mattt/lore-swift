@@ -40,7 +40,7 @@ import Testing
         let store = try await repository.openStore()
         #expect(store.repository == repository)
         #expect(store.repositoryID == id)
-        #expect(store.serverURL == nil)
+        #expect(store.remote == nil)
         #expect(await !store.isClosed)
         try await store.close()
         #expect(await store.isClosed)
@@ -723,7 +723,7 @@ import Testing
     @Test func uploadsContentToTheServer() async throws {
         let (repository, id, url) = try await makePublishedRepository()
         let store = try await repository.openStore(connectingTo: url)
-        #expect(store.serverURL == url)
+        #expect(store.remote == url)
 
         let local = try await store.put(Data("uploaded later\n".utf8), in: id)
         #expect(local.isStoredLocally)

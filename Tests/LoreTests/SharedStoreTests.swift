@@ -12,13 +12,13 @@ import Testing
 /// (exit tests) with a global configuration of their own,
 /// because the settings change how other tests create repositories.
 @Suite struct SharedStoreTests {
-    let remoteURL = "lore://shared-store.invalid:43000"
+    let remote = "lore://shared-store.invalid:43000"
     let offline = Repository.Options(identity: "test@example.com", isOffline: true)
 
     @Test func createRecordsTheStoreInTheRegistry() async throws {
         let directory = temporaryPath("shared-stores")
-        let store = try await SharedStore.create(for: remoteURL, in: directory, options: offline)
-        #expect(store.remoteURL == remoteURL)
+        let store = try await SharedStore.create(for: remote, in: directory, options: offline)
+        #expect(store.remote == remote)
         #expect(store.path == "\(directory)/shared-store.invalid_43000/shared_store")
         #expect(store.instances.isEmpty)
         #expect(FileManager.default.fileExists(atPath: "\(store.path)/shared_store.toml"))
@@ -29,7 +29,7 @@ import Testing
         #expect(withInstances == [store])
 
         let again = await #expect(throws: LoreError.self) {
-            try await SharedStore.create(for: remoteURL, in: directory, options: offline)
+            try await SharedStore.create(for: remote, in: directory, options: offline)
         }
         #expect(again?.message.contains("Found existing shared store") == true)
         let empty = await #expect(throws: LoreError.self) {
@@ -42,7 +42,7 @@ import Testing
         let directory = temporaryPath("shared-stores")
         let relative = relativePath(to: directory)
         #expect(!relative.hasPrefix("/"))
-        let store = try await SharedStore.create(for: remoteURL, in: relative, options: offline)
+        let store = try await SharedStore.create(for: remote, in: relative, options: offline)
         #expect(store.path == "\(directory)/shared-store.invalid_43000/shared_store")
         #expect(FileManager.default.fileExists(atPath: "\(store.path)/shared_store.toml"))
     }
@@ -58,7 +58,7 @@ import Testing
     func createRecordsTheServerURL(url: String, recorded: String, directoryName: String) async throws {
         let directory = temporaryPath("shared-stores")
         let store = try await SharedStore.create(for: url, in: directory, options: offline)
-        #expect(store.remoteURL == recorded)
+        #expect(store.remote == recorded)
         #expect(store.path == "\(directory)/\(directoryName)/shared_store")
         #expect(try await SharedStore.all().filter { $0.path.hasPrefix(directory) } == [store])
     }
@@ -79,11 +79,11 @@ import Testing
                 options: offline
             )
             #expect(store.path == "\(base)/stores/shared-store.invalid_43000/shared_store")
-            #expect(try await SharedStore.all().filter { $0.remoteURL == store.remoteURL } == [store])
+            #expect(try await SharedStore.all().filter { $0.remote == store.remote } == [store])
             #expect(try await SharedStore.configuration().defaultStores.map(\.path) == [store.path])
 
             let other = try await SharedStore.create(for: "lore://other.invalid:43000", options: offline)
-            #expect(try await SharedStore.all().filter { $0.remoteURL == other.remoteURL } == [other])
+            #expect(try await SharedStore.all().filter { $0.remote == other.remote } == [other])
         }
     }
 
@@ -123,7 +123,7 @@ import Testing
         let store = try #require(
             try await SharedStore.all(includingInstances: true).first { $0.path.hasPrefix(directory) }
         )
-        #expect(store.remoteURL == "")
+        #expect(store.remote == "")
         #expect(store.path == "\(directory)/shared_store")
         let firstInstance = try #require(try await first.instances().first)
         let secondInstance = try #require(try await second.instances().first)

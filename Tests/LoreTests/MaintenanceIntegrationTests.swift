@@ -102,7 +102,7 @@ import Testing
         let store = try #require(
             try await SharedStore.all(includingInstances: true).first { $0.path.hasPrefix(directory) }
         )
-        #expect(store.remoteURL == serverURL)
+        #expect(store.remote == serverURL)
         #expect(store.path == created.path)
         #expect(Set(store.instances.map(\.id)) == Set(instances.map(\.id)))
 

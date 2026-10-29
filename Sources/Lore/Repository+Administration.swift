@@ -16,7 +16,7 @@ extension Repository {
     /// The server lists the repositories that the caller may access.
     ///
     /// - Parameters:
-    ///   - server: The URL of the server,
+    ///   - remote: The URL of the server,
     ///     such as `lore://127.0.0.1:41337`.
     ///   - options: The options for the call,
     ///     such as the identity to connect with.
@@ -24,16 +24,16 @@ extension Repository {
     /// - Throws: ``LoreError`` if the library can't list the repositories,
     ///   such as ``LoreError/Code/invalidArguments`` for an empty server URL.
     public static func repositories(
-        on server: String,
+        on remote: String,
         options: Options = Options()
     ) async throws -> [RemoteRepository] {
-        if server.isEmpty {
+        if remote.isEmpty {
             throw LoreError(code: .invalidArguments, message: "The server URL is empty.")
         }
         return try await Repository(path: "", options: options).perform(
             lore_repository_list_async,
             configure: { (arguments: UnsafeMutablePointer<lore_repository_list_args_t>, arena) in
-                arguments.pointee.url = arena.string(server)
+                arguments.pointee.url = arena.string(remote)
             },
             transform: { event -> RemoteRepository? in
                 guard event.pointee.tag == LORE_EVENT_REPOSITORY_LIST_ENTRY.rawValue else {
