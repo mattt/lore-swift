@@ -46,7 +46,7 @@ public struct FileInfo: Sendable, Hashable {
     /// A Boolean value that indicates whether the library reports
     /// the entry as in conflict.
     ///
-    /// Lore 0.11.0 reports `false` for the files of a merge in progress,
+    /// Lore 0.12.0 reports `false` for the files of a merge in progress,
     /// including files whose conflicts aren't resolved;
     /// ``FileStatus/isConflicted`` reports those conflicts.
     public var isConflicted: Bool
@@ -106,7 +106,7 @@ public struct LineAttribution: Sendable, Hashable {
         /// isn't in the local store,
         /// and the audit reads only the local store.
         ///
-        /// In Lore 0.11.0,
+        /// In Lore 0.12.0,
         /// after ``Repository/obliterate(contentAt:)`` removes an earlier version
         /// from the local store of an offline repository,
         /// an audit reports the lines whose attribution needs that version
@@ -260,7 +260,7 @@ extension Repository {
                 break
             }
         }
-        // Lore 0.11.0 can list one revision more than the length it's given.
+        // Lore 0.12.0 can list one revision more than the length it's given.
         if let limit {
             return Array(history.prefix(limit))
         }
@@ -416,7 +416,7 @@ extension Repository {
     /// that the current branch descends from.
     ///
     /// For a directory path, such as `"."`,
-    /// Lore 0.11.0 resets the files under it to their content
+    /// Lore 0.12.0 resets the files under it to their content
     /// at that revision instead of the content of the merge.
     /// Pass the paths of files to restore the content of the merge.
     ///

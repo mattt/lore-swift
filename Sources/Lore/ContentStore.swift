@@ -36,7 +36,7 @@ import Synchronization
 /// under which the store records content and keys.
 /// ``copy(_:from:to:context:)`` takes a source and a target partition,
 /// and ``entries(ofType:in:)`` takes `nil` to list every partition.
-/// In Lore 0.11.0, a read in one partition also finds content
+/// In Lore 0.12.0, a read in one partition also finds content
 /// that the store records with the same hash under another partition or context,
 /// unless you obliterated the content in the partition that you read.
 ///
@@ -369,7 +369,7 @@ extension ContentStore {
     ///
     /// The kind is part of the key:
     /// the same key of two kinds names two values.
-    /// In Lore 0.11.0, the local store replaces the third byte of a key
+    /// In Lore 0.12.0, the local store replaces the third byte of a key
     /// with the raw value of its kind,
     /// so keys that differ only in that byte name the same value.
     /// The library keeps a repository's branches, metadata, and instances
@@ -420,7 +420,7 @@ extension ContentStore {
         /// It's also `false` for content that a store with a server
         /// puts or publishes with `uploading`,
         /// with the data or the file variant of either method:
-        /// Lore 0.11.0 writes the bytes only to the server,
+        /// Lore 0.12.0 writes the bytes only to the server,
         /// although the header says that a publish always writes the local store,
         /// and reads fetch the bytes from the server.
         public var isStoredLocally: Bool
@@ -1190,7 +1190,7 @@ extension ContentStore {
     /// Lists the keys of a kind in the mutable store, with their values.
     ///
     /// The method reads only the local store.
-    /// In Lore 0.11.0, the list of ``KeyType/untyped`` keys is always empty.
+    /// In Lore 0.12.0, the list of ``KeyType/untyped`` keys is always empty.
     ///
     /// - Parameters:
     ///   - type: The kind of value that the keys refer to.

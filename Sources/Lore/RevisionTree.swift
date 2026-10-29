@@ -468,7 +468,7 @@ extension RevisionTree {
     ///   or an empty string for the root directory.
     /// - Returns: The node at the path.
     /// - Throws: ``LoreError`` if the library can't resolve the path.
-    ///   Lore 0.11.0 reports a path without a node
+    ///   Lore 0.12.0 reports a path without a node
     ///   with ``LoreError/Code/invalidArguments``.
     public func resolve(_ path: String) async throws -> ResolvedPath {
         let resolved = try await perform(
@@ -1161,7 +1161,7 @@ extension RevisionTree {
     ///   or `nil` to use the `message` value that you set, if any.
     /// - Returns: The new revision, with its metadata.
     /// - Throws: ``LoreError`` if the library can't commit the tree.
-    ///   Lore 0.11.0 reports a branch whose latest revision is no longer the one that the tree held,
+    ///   Lore 0.12.0 reports a branch whose latest revision is no longer the one that the tree held,
     ///   and a tree without edits, metadata, a message, or an identity,
     ///   with ``LoreError/Code/internal``.
     @discardableResult
@@ -1173,7 +1173,7 @@ extension RevisionTree {
             if let message {
                 values["message"] = .string(message)
             }
-            // Lore 0.11.0 records the identity of the user
+            // Lore 0.12.0 records the identity of the user
             // only for operations on a working directory,
             // although the header says that a tree commit records it.
             let identity: String?

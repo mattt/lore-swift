@@ -313,7 +313,7 @@ import Testing
         #expect(conflicted.isMerged && conflicted.isConflicted)
 
         // In a merge that a sync stages,
-        // Lore 0.11.0 resolves with the revision from the server as mine
+        // Lore 0.12.0 resolves with the revision from the server as mine
         // and the local revision as theirs.
         let expected =
             switch side {

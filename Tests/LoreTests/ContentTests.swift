@@ -207,7 +207,7 @@ import Testing
         try await repository.writeContents(of: "a.txt", revision: "main@2", to: destination)
         #expect(try String(contentsOfFile: destination, encoding: .utf8) == "two\n")
 
-        // Lore 0.11.0 can't commit the staged deletion until it's staged again.
+        // Lore 0.12.0 can't commit the staged deletion until it's staged again.
         let commit = await #expect(throws: LoreError.self) {
             try await repository.commit(message: "Obliterate a.txt")
         }

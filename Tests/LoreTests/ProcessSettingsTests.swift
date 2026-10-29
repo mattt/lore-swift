@@ -29,7 +29,7 @@ import Testing
             _ = isolatedHome
             let repository = try await makeOfflineRepository()
             #expect(try await repository.status().branch == "main")
-            // Lore 0.11.0 records a limit after the first operation, despite the header.
+            // Lore 0.12.0 records a limit after the first operation, despite the header.
             #expect(Library.setThreadLimit(8))
             #expect(!Library.setThreadLimit(8))
         }

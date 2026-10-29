@@ -68,7 +68,7 @@ extension Repository {
     ///
     /// - Returns: A stream of notifications.
     /// - Throws: ``LoreError`` if the library can't subscribe.
-    ///   Lore 0.11.0 reports an offline repository with ``LoreError/Code/internal``.
+    ///   Lore 0.12.0 reports an offline repository with ``LoreError/Code/internal``.
     public func notifications() async throws -> AsyncStream<RepositoryNotification> {
         try await notifications(from: .shared)
     }

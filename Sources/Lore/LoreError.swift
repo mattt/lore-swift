@@ -46,7 +46,7 @@ extension LoreError {
     /// such as 3–15 for invalid input and 79–99 for missing resources;
     /// ``category`` reports the range of a code.
     /// The named codes come from `lore-base/src/error.rs`
-    /// in Lore 0.11.0;
+    /// in Lore 0.12.0;
     /// the C header names only a few of them.
     public struct Code: RawRepresentable, Sendable, Hashable {
         /// The raw value of the code.

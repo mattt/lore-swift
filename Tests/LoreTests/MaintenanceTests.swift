@@ -38,7 +38,7 @@ import Testing
         #expect(dump.treeHash != revision.id.bytes)
         #expect(dump.treeHash.contains { $0 != 0 })
         #expect(try await repository.stateDump(of: "main@1").treeHash == dump.treeHash)
-        // The size that Lore 0.11.0 reports for this tree.
+        // The size that Lore 0.12.0 reports for this tree.
         #expect(dump.treeSize == 13)
         #expect(dump.nodes.map(\.path) == ["dir/", "dir/b.txt", "a.txt"])
         // The library records a mode of 0 and flags 1 for each file here,

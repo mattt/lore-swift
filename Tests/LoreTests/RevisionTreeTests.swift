@@ -48,7 +48,7 @@ import Testing
 
     @Test(arguments: ["test@example.com", nil])
     func libraryRecordsNoIdentityForATreeCommit(_ identity: String?) async throws {
-        // Lore 0.11.0 records the identity only for operations on a working directory,
+        // Lore 0.12.0 records the identity only for operations on a working directory,
         // although the header says that a tree commit records it.
         // If this test fails, the library has started to record it,
         // and `RevisionTree.commit(message:)` no longer needs to.

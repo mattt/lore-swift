@@ -5,16 +5,16 @@ import Synchronization
 /// Process-wide information about and control of the Lore library.
 public enum Library {
     /// The version of the loaded library,
-    /// such as `0.11.0+1893-lore_v0.11.0__urc_main`.
+    /// such as `0.12.0+1967`.
     ///
     /// The version starts with the interface version
-    /// and continues with `+` and the build name.
+    /// and continues with `+` and an identifier of the build.
     public static var version: String {
         String(cString: lore_version())
     }
 
     /// The interface version of the header that the binding was built against,
-    /// such as `0.11.0`.
+    /// such as `0.12.0`.
     public static let interfaceVersion: String = LORE_INTERFACE_VERSION
 
     /// The directory where the library keeps its per-user data.
@@ -88,7 +88,7 @@ extension Library {
     ///
     /// Call this method once, before the first operation of the process.
     /// The first call records the limit and returns `true`,
-    /// in Lore 0.11.0 even after the first operation,
+    /// in Lore 0.12.0 even after the first operation,
     /// and later calls return `false`.
     /// There's no way to read the limit back.
     ///
@@ -116,7 +116,7 @@ extension Library {
     /// - Parameter mode: The mode.
     /// - Throws: ``LoreError`` with ``LoreError/Code/invalidArguments``
     ///   for a mode that the library doesn't support,
-    ///   such as Oodle (raw value 3), which Lore 0.11.0 refuses.
+    ///   such as Oodle (raw value 3), which Lore 0.12.0 refuses.
     public static func setCompressionMode(_ mode: CompressionMode) throws {
         let status = lore_set_compression_mode(mode.rawValue)
         if status != 0 {

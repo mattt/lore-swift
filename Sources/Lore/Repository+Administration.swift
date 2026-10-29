@@ -56,7 +56,7 @@ extension Repository {
     /// and ``info()`` in a checkout of it
     /// fail with ``LoreError/Code/notFound``.
     /// Checkouts of the repository keep their files and revisions.
-    /// In Lore 0.11.0, a push from such a checkout still succeeds,
+    /// In Lore 0.12.0, a push from such a checkout still succeeds,
     /// and the server still doesn't find the repository afterward.
     /// A server lets the user who created the repository delete it,
     /// and a user that it grants the `owner` or `admin` permission.
