@@ -12,7 +12,8 @@ public enum MetadataValue: Sendable, Hashable {
     case boolean(Bool)
     /// Raw bytes of any length.
     ///
-    /// The methods that set metadata can't set a binary value:
+    /// Only ``RevisionTree/setMetadata(_:)`` can set a binary value.
+    /// The other methods that set metadata can't:
     /// in Lore 0.11.0,
     /// `lore_file_metadata_set` reads the text of a binary value
     /// as the path of a file,
@@ -55,6 +56,75 @@ extension MetadataValue {
             )
         default:
             return nil
+        }
+    }
+
+    /// Checks that a hash, context, or address has the number of bytes
+    /// that the library's metadata values hold.
+    ///
+    /// - Throws: ``LoreError`` with ``LoreError/Code/invalidArguments``
+    ///   for a value with the wrong number of bytes.
+    func checkByteCounts(forKey key: String) throws {
+        func check(_ bytes: [UInt8], count: Int, _ name: String) throws {
+            guard bytes.count == count else {
+                throw LoreError(
+                    code: .invalidArguments,
+                    message: "The metadata \(name) for \(key) has \(bytes.count) bytes, not \(count)."
+                )
+            }
+        }
+        switch self {
+        case .hash(let bytes):
+            try check(bytes, count: 32, "hash")
+        case .context(let bytes):
+            try check(bytes, count: 16, "context")
+        case .address(let hash, let context):
+            try check(hash, count: 32, "hash")
+            try check(context, count: 16, "context")
+        case .string, .number, .boolean, .binary:
+            break
+        }
+    }
+
+    /// Writes the value into a library metadata value in zero-filled memory,
+    /// which the revision tree functions take.
+    ///
+    /// The method sets the tag and one member of the union in place,
+    /// so the padding after the tag keeps the zeros that the header requires.
+    /// A whole `lore_metadata_t` that Swift copies into the memory
+    /// can leave other bytes in the padding.
+    /// Call ``checkByteCounts(forKey:)`` first.
+    func write(to value: UnsafeMutablePointer<lore_metadata_t>, in arena: Arena) {
+        switch self {
+        case .string(let string):
+            value.pointee.tag = LORE_METADATA_TYPE_STRING.rawValue
+            value.pointee.string = arena.string(string)
+        case .number(let number):
+            value.pointee.tag = LORE_METADATA_TYPE_NUMERIC.rawValue
+            value.pointee.numeric = number
+        case .boolean(let boolean):
+            value.pointee.tag = LORE_METADATA_TYPE_BOOLEAN.rawValue
+            value.pointee.boolean = UInt8(boolean)
+        case .binary(let bytes):
+            value.pointee.tag = LORE_METADATA_TYPE_BINARY.rawValue
+            let buffer = arena.array(bytes)
+            value.pointee.binary = lore_binary_t(payload: buffer.pointer, length: UInt(buffer.count))
+        case .hash(let bytes):
+            value.pointee.tag = LORE_METADATA_TYPE_HASH.rawValue
+            var hash = lore_hash_t()
+            setTupleBytes(&hash.data, to: bytes)
+            value.pointee.hash = hash
+        case .context(let bytes):
+            value.pointee.tag = LORE_METADATA_TYPE_CONTEXT.rawValue
+            var context = lore_context_t()
+            setTupleBytes(&context.data, to: bytes)
+            value.pointee.context = context
+        case .address(let hash, let context):
+            value.pointee.tag = LORE_METADATA_TYPE_ADDRESS.rawValue
+            var address = lore_address_t()
+            setTupleBytes(&address.hash.data, to: hash)
+            setTupleBytes(&address.context.data, to: context)
+            value.pointee.address = address
         }
     }
 

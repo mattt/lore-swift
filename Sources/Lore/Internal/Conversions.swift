@@ -78,6 +78,17 @@ func tupleBytes<T>(_ tuple: T) -> [UInt8] {
     withUnsafeBytes(of: tuple) { Array($0) }
 }
 
+/// Copies bytes into a fixed-size C array,
+/// which Swift imports as a tuple.
+///
+/// The tuple must hold exactly as many bytes as `bytes`.
+func setTupleBytes<T>(_ tuple: inout T, to bytes: [UInt8]) {
+    withUnsafeMutableBytes(of: &tuple) { buffer in
+        precondition(buffer.count == bytes.count, "Lore: expected \(buffer.count) bytes, not \(bytes.count)")
+        buffer.copyBytes(from: bytes)
+    }
+}
+
 /// Formats bytes as lowercase hexadecimal digits.
 func hexadecimal(_ bytes: [UInt8]) -> String {
     let digits = Array("0123456789abcdef".utf8)

@@ -141,6 +141,27 @@ func perform<Event: Sendable>(
     }
 }
 
+/// Starts an asynchronous call to the C library without waiting for it.
+///
+/// The callback context stays alive until the library ends the call,
+/// so the caller can return,
+/// or its object can be deinitialized,
+/// while the call runs.
+///
+/// - Parameters:
+///   - onEnd: Runs once, on one of the library's worker threads,
+///     when the library ends the call,
+///     with the error if the call failed.
+///   - start: Calls a `lore_*_async` function with the given callback configuration.
+///     The function must call it exactly once, synchronously.
+func detach(
+    onEnd: @escaping @Sendable (LoreError?) -> Void,
+    start: (lore_event_callback_config_t) -> Void
+) {
+    let receiver = EventReceiver(onEvent: { _ in }, onEnd: onEnd)
+    start(receiver.retainedCallbackConfiguration())
+}
+
 /// Starts an asynchronous call to the C library
 /// and returns a stream of its progress and its result.
 ///

@@ -168,6 +168,23 @@ let dependencies = try await repository.dependencies(of: ["scene.usd"], recursiv
 let dependents = try await repository.dependents(of: ["hero.png"])
 ```
 
+### Editing a revision without a working directory
+
+```swift
+let tree = try await repository.loadRevisionTree(of: .latest(on: "main"))
+let readme = try await tree.resolve("README.md").nodeID
+try await tree.move([.init(node: readme, to: .root, name: "README.txt")])
+try await tree.setMetadata(["ticket": .string("DOC-7")])
+let revision = try await tree.commit(message: "Rename the readme")
+try await tree.close()
+
+try await repository.sync(to: .id(revision.id))
+try await repository.push()
+```
+
+Close a tree when you're done with it:
+an open tree keeps other processes from using the repository's store.
+
 ### Locking files
 
 Locks are held on the server.
@@ -268,6 +285,7 @@ so it must return promptly.
 | Sync | `lore_revision_sync_async` | `sync(to:discardingLocalChanges:)`, `syncUpdates` |
 | Revisions | `lore_revision_history_async`, `lore_revision_info_async`, `lore_revision_diff_async`, `lore_revision_find_async`, `lore_revision_bisect_async` | `history(from:on:since:limit:stoppingAtBranchPoint:)`, `revision(_:)`, `changes(in:)`, `changes(from:to:paths:)`, `findRevision(withMetadataKey:value:)`, `findRevision(numbered:)`, `bisect(between:and:)` |
 | Revision metadata | `lore_revision_metadata_get_async`, `lore_revision_metadata_list_async`, `lore_revision_metadata_set_async`, `lore_revision_metadata_clear_async` | `revisionMetadata(forKey:of:)`, `revisionMetadata(of:)`, `setRevisionMetadata(_:)`, `clearRevisionMetadata()` |
+| Revision trees | `lore_revision_tree_load_async`, `lore_revision_tree_close_async`, `lore_revision_tree_info_async`, `lore_revision_tree_resolve_path_async`, `lore_revision_tree_list_children_async`, `lore_revision_tree_node_info_async`, `lore_revision_tree_node_path_async`, `lore_revision_tree_add_async`, `lore_revision_tree_delete_async`, `lore_revision_tree_modify_async`, `lore_revision_tree_move_async`, `lore_revision_tree_metadata_get_async`, `lore_revision_tree_metadata_set_async`, `lore_revision_tree_metadata_clear_async`, `lore_revision_tree_commit_async` | `loadRevisionTree(of:)`, `loadEmptyRevisionTree()`, `RevisionTree`: `close()`, `info()`, `resolve(_:)`, `children(of:)`, `node(_:)`, `path(of:)`, `add(_:)`, `delete(_:)`, `modify(_:)`, `move(_:)`, `metadata(forKeys:includingLoadedRevision:)`, `metadata(forKey:includingLoadedRevision:)`, `setMetadata(_:)`, `clearMetadata(forKeys:)`, `commit(message:)` |
 | Branches | `lore_branch_list_async`, `lore_branch_create_async`, `lore_branch_switch_async`, `lore_branch_info_async`, `lore_branch_archive_async`, `lore_branch_protect_async`, `lore_branch_unprotect_async`, `lore_branch_reset_async`, `lore_branch_latest_list_async` | `branches(includingArchived:)`, `createBranch(named:category:)`, `switchBranch(to:revision:discardingLocalChanges:)`, `branchInfo(named:inLinkAt:)`, `archiveBranch(named:includingLinks:includingLayers:)`, `protectBranch(named:)`, `unprotectBranch(named:)`, `resetBranch(named:to:)`, `latestRevisions(on:limit:)` |
 | Branch metadata | `lore_branch_metadata_get_async`, `lore_branch_metadata_set_async`, `lore_branch_metadata_clear_async` | `branchMetadata(of:)`, `branchMetadata(forKey:of:)`, `setBranchMetadata(_:of:)`, `clearBranchMetadata(keys:of:)` |
 | Merges | `lore_branch_merge_start_async`, `lore_branch_merge_into_async`, `lore_branch_diff_async`, `lore_file_stage_merge_async`, `lore_file_reset_to_last_merged_async` | `mergeBranch(named:message:committing:linkMessages:includingLinks:)`, `mergeBranch(into:message:)`, `branchDiff(merging:into:path:mergingAutomatically:)`, `stageMerged(_:)`, `reset(_:toLastMergeFrom:keeping:deletingUntrackedFiles:)` |
@@ -284,8 +302,8 @@ so it must return promptly.
 | Layers | `lore_layer_add_async`, `lore_layer_remove_async`, `lore_layer_list_async` | `addLayer(from:at:sourcePath:matchingMetadataKey:)`, `removeLayer(at:sourceRepository:deletingUntrackedFiles:discardingLocalChanges:)`, `layers()` |
 
 The binding doesn't cover the rest of the C API,
-such as revision trees and the storage API.
-The methods that set metadata can't set binary or address values.
+such as the storage API.
+Only `RevisionTree.setMetadata(_:)` can set binary or address metadata values.
 
 ## Development
 
