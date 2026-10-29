@@ -16,23 +16,34 @@ func withTimeLimit<T: Sendable>(
     _ limit: Duration = .seconds(10),
     _ operation: @escaping @Sendable () async throws -> T
 ) async throws -> T {
-    let pending = Mutex<CheckedContinuation<T, any Error>?>(nil)
-    @Sendable func finish(_ result: Result<T, any Error>) {
-        pending.withLock { $0.take() }?.resume(with: result)
-    }
+    let outcome = TimeLimitOutcome<T>()
     return try await withCheckedThrowingContinuation { continuation in
-        pending.withLock { $0 = continuation }
+        outcome.wait(with: continuation)
         Task {
             do {
-                finish(.success(try await operation()))
+                outcome.finish(.success(try await operation()))
             } catch {
-                finish(.failure(error))
+                outcome.finish(.failure(error))
             }
         }
         Task {
             try? await Task.sleep(for: limit)
-            finish(.failure(TimeLimitExceeded()))
+            outcome.finish(.failure(TimeLimitExceeded()))
         }
+    }
+}
+
+/// The continuation of a call to ``withTimeLimit(_:_:)``,
+/// which the first result to arrive resumes.
+private final class TimeLimitOutcome<T: Sendable>: Sendable {
+    private let continuation = Mutex<CheckedContinuation<T, any Error>?>(nil)
+
+    func wait(with continuation: CheckedContinuation<T, any Error>) {
+        self.continuation.withLock { $0 = continuation }
+    }
+
+    func finish(_ result: Result<T, any Error>) {
+        continuation.withLock { $0.take() }?.resume(with: result)
     }
 }
 
