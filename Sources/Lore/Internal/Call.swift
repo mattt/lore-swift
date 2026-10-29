@@ -17,6 +17,7 @@ typealias EventTransform<Event> = @Sendable (UnsafePointer<lore_event_t>) -> Eve
 /// including a call that the library rejects before it starts.
 private final class EventReceiver: Sendable {
     private let onEvent: @Sendable (UnsafePointer<lore_event_t>) -> Void
+    private let onComplete: (@Sendable (LoreError?) -> Void)?
     private let onEnd: @Sendable (LoreError?) -> Void
     private let failure = Mutex<LoreError?>(nil)
 
@@ -31,9 +32,11 @@ private final class EventReceiver: Sendable {
 
     init(
         onEvent: @escaping @Sendable (UnsafePointer<lore_event_t>) -> Void,
+        onComplete: (@Sendable (LoreError?) -> Void)? = nil,
         onEnd: @escaping @Sendable (LoreError?) -> Void
     ) {
         self.onEvent = onEvent
+        self.onComplete = onComplete
         self.onEnd = onEnd
     }
 
@@ -43,10 +46,12 @@ private final class EventReceiver: Sendable {
         switch event.pointee.tag {
         case LORE_EVENT_COMPLETE.rawValue:
             let complete = event.pointee.complete
+            var error: LoreError?
             if complete.status != 0 {
-                let error = LoreError(status: complete.status, detail: complete.error)
+                error = LoreError(status: complete.status, detail: complete.error)
                 failure.withLock { $0 = error }
             }
+            onComplete?(error)
             return false
         case LORE_EVENT_END.rawValue:
             onEnd(failure.withLock { $0 })
@@ -189,4 +194,53 @@ func stream<Event: Sendable, Progress: Sendable, Result: Sendable>(
     )
     start(receiver.retainedCallbackConfiguration())
     return stream
+}
+
+/// Starts an asynchronous call to the C library that keeps reporting events
+/// after it completes,
+/// and waits for it to complete.
+///
+/// A notification subscription completes once it's established,
+/// and then reports events until the subscription ends,
+/// when the library sends its `END` event.
+/// The callback context stays alive until then.
+///
+/// - Parameters:
+///   - onEvent: Receives each event other than the standard ones,
+///     on one of the library's worker threads.
+///     The event is valid only while the function runs.
+///   - onEnd: Runs once, when the library ends the call.
+///   - start: Calls a `lore_*_async` function with the given callback configuration.
+///     The function must call it exactly once, synchronously.
+/// - Throws: ``LoreError`` if the call fails.
+func subscribe(
+    onEvent: @escaping @Sendable (UnsafePointer<lore_event_t>) -> Void,
+    onEnd: @escaping @Sendable () -> Void,
+    start: (lore_event_callback_config_t) -> Void
+) async throws {
+    // The library sends `COMPLETE` before `END`;
+    // the continuation is resumed by whichever arrives first.
+    let pending = Mutex<CheckedContinuation<Void, any Error>?>(nil)
+    @Sendable func resume(_ error: LoreError?) {
+        guard let continuation = pending.withLock({ $0.take() }) else {
+            return
+        }
+        if let error {
+            continuation.resume(throwing: error)
+        } else {
+            continuation.resume()
+        }
+    }
+    try await withCheckedThrowingContinuation { continuation in
+        pending.withLock { $0 = continuation }
+        let receiver = EventReceiver(
+            onEvent: onEvent,
+            onComplete: resume,
+            onEnd: { error in
+                resume(error ?? LoreError.missingEvent("a completion"))
+                onEnd()
+            }
+        )
+        start(receiver.retainedCallbackConfiguration())
+    }
 }
