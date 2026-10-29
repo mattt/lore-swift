@@ -48,7 +48,7 @@ extension Repository {
     /// including the notifications for your own pushes and locks.
     ///
     /// ```swift
-    /// for await notification in try await repository.notifications() {
+    /// for try await notification in try await repository.notifications() {
     ///     if case .branchPushed(_, let revision, _, let userID) = notification {
     ///         print(userID, "pushed", revision)
     ///     }
@@ -60,6 +60,8 @@ extension Repository {
     /// when the stream and its iterator are released,
     /// or when the server ends the subscription,
     /// which finishes the stream.
+    /// If the library ends the subscription with an error,
+    /// the stream throws it as ``LoreError``.
     /// The library keeps one subscription for each repository in a process,
     /// so every stream for the repository,
     /// including the streams of its clones in the same process,
@@ -69,14 +71,14 @@ extension Repository {
     /// - Returns: A stream of notifications.
     /// - Throws: ``LoreError`` if the library can't subscribe.
     ///   Lore 0.12.0 reports an offline repository with ``LoreError/Code/internal``.
-    public func notifications() async throws -> AsyncStream<RepositoryNotification> {
+    public func notifications() async throws -> AsyncThrowingStream<RepositoryNotification, any Error> {
         try await notifications(from: .shared)
     }
 
     /// Joins a repository's subscription in the given subscriptions.
-    func notifications(from subscriptions: NotificationSubscriptions) async throws -> AsyncStream<
-        RepositoryNotification
-    > {
+    func notifications(
+        from subscriptions: NotificationSubscriptions
+    ) async throws -> AsyncThrowingStream<RepositoryNotification, any Error> {
         // The subscription outlives this call,
         // so the library calls that start and end it use the path as it resolves now.
         let repository = Repository(path: absolutePath, options: options)
@@ -143,8 +145,10 @@ actor NotificationSubscriptions {
     /// applies the change of phase itself before it looks again,
     /// because awaiting a finished task doesn't give up the actor,
     /// so the other caller might not run first.
-    func join(_ repository: Repository, repositoryID: RepositoryID) async throws -> AsyncStream<RepositoryNotification>
-    {
+    func join(
+        _ repository: Repository,
+        repositoryID: RepositoryID
+    ) async throws -> AsyncThrowingStream<RepositoryNotification, any Error> {
         while true {
             guard let entry = entries[repositoryID] else {
                 return try await open(repository, repositoryID: repositoryID)
@@ -174,7 +178,7 @@ actor NotificationSubscriptions {
     private func open(
         _ repository: Repository,
         repositoryID: RepositoryID
-    ) async throws -> AsyncStream<RepositoryNotification> {
+    ) async throws -> AsyncThrowingStream<RepositoryNotification, any Error> {
         let channel = NotificationChannel(owner: self, repository: repository, repositoryID: repositoryID)
         // The first stream exists before the subscription,
         // so that it receives every notification.
@@ -262,7 +266,7 @@ final class NotificationChannel: Sendable {
     let repositoryID: RepositoryID
 
     private struct State {
-        var streams: [Int: AsyncStream<RepositoryNotification>.Continuation] = [:]
+        var streams: [Int: AsyncThrowingStream<RepositoryNotification, any Error>.Continuation] = [:]
         var nextStream = 0
         var hasEnded = false
     }
@@ -282,8 +286,8 @@ final class NotificationChannel: Sendable {
 
     /// Makes a stream that receives the channel's notifications,
     /// or returns `nil` if the library has ended the subscription.
-    func makeStream() -> AsyncStream<RepositoryNotification>? {
-        let (stream, continuation) = AsyncStream.makeStream(of: RepositoryNotification.self)
+    func makeStream() -> AsyncThrowingStream<RepositoryNotification, any Error>? {
+        let (stream, continuation) = AsyncThrowingStream.makeStream(of: RepositoryNotification.self)
         let id: Int? = state.withLock { state in
             guard !state.hasEnded else {
                 return nil
@@ -322,6 +326,21 @@ final class NotificationChannel: Sendable {
         }
     }
 
+    /// Records that the library ended the subscription,
+    /// and finishes every stream, throwing the error if there is one.
+    func end(_ error: LoreError?) {
+        let streams = state.withLock { state in
+            state.hasEnded = true
+            let streams = state.streams.values
+            state.streams = [:]
+            return streams
+        }
+        for stream in streams {
+            stream.finish(throwing: error)
+        }
+        Task { await owner.ended(self) }
+    }
+
     /// Subscribes, returning once the subscription is established.
     func subscribe() async throws {
         let arena = Arena()
@@ -337,18 +356,7 @@ final class NotificationChannel: Sendable {
                     stream.yield(notification)
                 }
             },
-            onEnd: { [self] in
-                let streams = state.withLock { state in
-                    state.hasEnded = true
-                    let streams = state.streams.values
-                    state.streams = [:]
-                    return streams
-                }
-                for stream in streams {
-                    stream.finish()
-                }
-                Task { await self.owner.ended(self) }
-            },
+            onEnd: { [self] error in end(error) },
             start: { callback in
                 withExtendedLifetime(arena) {
                     lore_notification_subscribe_async(globals, arguments, callback)

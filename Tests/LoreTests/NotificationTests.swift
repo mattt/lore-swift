@@ -250,6 +250,35 @@ private final class TimeLimitOutcome<T: Sendable>: Sendable {
         try await expectEventually { unsubscribed.value == 1 }
     }
 
+    @Test(arguments: [nil, LoreError(code: .internal, message: "The stream broke.")])
+    func aSubscriptionThatTheLibraryEndsFinishesItsStreams(error: LoreError?) async throws {
+        let unsubscribed = Counter()
+        let subscriptions = NotificationSubscriptions(
+            subscribe: { _ in },
+            unsubscribe: { _ in unsubscribed.increment() }
+        )
+        let repository = repository
+        let repositoryID = repositoryID
+        let thrown = try await withTimeLimit {
+            let stream = try await subscriptions.join(repository, repositoryID: repositoryID)
+            let channel = try #require(await subscriptions.channel(for: repositoryID))
+            channel.end(error)
+            let notifications = await Result {
+                var notifications: [RepositoryNotification] = []
+                for try await notification in stream {
+                    notifications.append(notification)
+                }
+                return notifications
+            }
+            #expect((try? notifications.get())?.isEmpty ?? true)
+            return notifications.error
+        }
+        #expect(thrown as? LoreError == error)
+        // The library ended the subscription, so the binding doesn't unsubscribe.
+        try await expectEventually { await subscriptions.channel(for: repositoryID) == nil }
+        #expect(unsubscribed.value == 0)
+    }
+
     @Test func aChannelKeepsTheRepositoryPathAsItResolvedWhenItJoined() async throws {
         let absolute = try await makeOfflineRepository()
         let currentDirectory = FileManager.default.currentDirectoryPath
@@ -282,6 +311,11 @@ extension Result where Failure == any Error {
             self = .failure(error)
         }
     }
+
+    /// The error, or `nil` for a success.
+    fileprivate var error: (any Error)? {
+        if case .failure(let error) = self { error } else { nil }
+    }
 }
 
 /// Tests of notification subscriptions against a local server.
@@ -298,12 +332,16 @@ extension Result where Failure == any Error {
         private let storage: Storage
         private let task: Task<Void, Never>
 
-        init(_ stream: AsyncStream<RepositoryNotification>) {
+        init(_ stream: AsyncThrowingStream<RepositoryNotification, any Error>) {
             let storage = Storage()
             self.storage = storage
             task = Task {
-                for await notification in stream {
-                    storage.notifications.withLock { $0.append(notification) }
+                do {
+                    for try await notification in stream {
+                        storage.notifications.withLock { $0.append(notification) }
+                    }
+                } catch {
+                    Issue.record(error, "The notification stream threw.")
                 }
             }
         }
@@ -543,8 +581,12 @@ extension Result where Failure == any Error {
             let four = try await commitAndPush("four\n", in: bob)
             let notification = await withTaskGroup(of: RepositoryNotification?.self) { group in
                 group.addTask {
-                    for await notification in stream {
-                        return notification
+                    do {
+                        for try await notification in stream {
+                            return notification
+                        }
+                    } catch {
+                        Issue.record(error, "The notification stream threw.")
                     }
                     return nil
                 }

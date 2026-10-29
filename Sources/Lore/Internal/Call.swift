@@ -284,13 +284,14 @@ func stream<Event: Sendable, Progress: Sendable, Result: Sendable>(
 ///   - onEvent: Receives each event other than the standard ones,
 ///     on one of the library's worker threads.
 ///     The event is valid only while the function runs.
-///   - onEnd: Runs once, when the library ends the call.
+///   - onEnd: Runs once, when the library ends the call,
+///     with the error if the call failed.
 ///   - start: Calls a `lore_*_async` function with the given callback configuration.
 ///     The function must call it exactly once, synchronously.
 /// - Throws: ``LoreError`` if the call fails.
 func subscribe(
     onEvent: @escaping @Sendable (UnsafePointer<lore_event_t>) -> Void,
-    onEnd: @escaping @Sendable () -> Void,
+    onEnd: @escaping @Sendable (LoreError?) -> Void,
     start: (lore_event_callback_config_t) -> Void
 ) async throws {
     // The library sends `COMPLETE` before `END`;
@@ -313,7 +314,7 @@ func subscribe(
             onComplete: resume,
             onEnd: { error in
                 resume(error ?? LoreError.missingEvent("a completion"))
-                onEnd()
+                onEnd(error)
             }
         )
         start(receiver.retainedCallbackConfiguration())

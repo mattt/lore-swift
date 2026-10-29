@@ -212,7 +212,7 @@ try await repository.unlock(["hero.png"])
 ### Watching the server for changes
 
 ```swift
-for await notification in try await repository.notifications() {
+for try await notification in try await repository.notifications() {
     switch notification {
     case .branchPushed(_, let revision, _, let userID):
         print(userID, "pushed", revision)
