@@ -109,7 +109,9 @@ public struct LineAttribution: Sendable, Hashable {
         /// In Lore 0.11.0,
         /// after ``Repository/obliterate(contentAt:)`` removes an earlier version
         /// from the local store of an offline repository,
-        /// an audit reports every line with this outcome.
+        /// an audit reports the lines whose attribution needs that version
+        /// with this outcome,
+        /// not with ``obliterated``.
         public static let contentUnavailable = Self(rawValue: LORE_FILE_AUDIT_OUTCOME_CONTENT_UNAVAILABLE.rawValue)
         /// An error ended the audit before it reached the lines.
         ///

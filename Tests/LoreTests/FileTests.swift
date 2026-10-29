@@ -421,6 +421,11 @@ import Testing
 
     @Test func auditReportsAnObliteratedEarlierVersion() async throws {
         let (repository, revisions) = try await repository()
+        // The third revision changes only line 4,
+        // which the audit can attribute without reading the first version.
+        try repository.write("one\nTWO\nthree\nFOUR\n", to: "a.txt")
+        try await repository.stage(["a.txt"])
+        let third = try await repository.commit(message: "Revision 3")
         // Obliterate the first version of a.txt, whose content is "one\ntwo\nthree\n".
         // A file keeps its context across versions.
         let current = try #require(try await repository.storedContent(of: "a.txt"))
@@ -431,16 +436,18 @@ import Testing
         #expect(try await repository.storedContent(at: first) != nil)
         try await repository.obliterate(contentAt: first)
 
-        // Lore 0.11.0 reports every line as unavailable, not only the lines
-        // whose history reaches the obliterated version.
+        // Lore 0.11.0 reports the lines that need the removed version
+        // as unavailable, not as obliterated.
+        let repositoryID = try await repository.state().repositoryID
         #expect(
             try await repository.audit("a.txt") == [
                 LineAttribution(
-                    lines: 1 ... 4,
+                    lines: 1 ... 3,
                     revision: nil,
-                    repositoryID: try await repository.state().repositoryID,
+                    repositoryID: repositoryID,
                     outcome: .contentUnavailable
-                )
+                ),
+                LineAttribution(lines: 4 ... 4, revision: third.id, repositoryID: repositoryID, outcome: .attributed),
             ]
         )
         // The version at the second revision is still there.
