@@ -453,8 +453,8 @@ public struct RepositoryInstance: Sendable, Hashable, Identifiable {
     public var path: String
 
     /// The name of the checkout's current branch,
-    /// or an empty string if the store doesn't record one.
-    public var branch: String
+    /// or `nil` if the store doesn't record one.
+    public var branch: String?
 
     /// The identifier of the checkout's current branch.
     public var branchID: BranchID?
@@ -542,7 +542,7 @@ extension RepositoryInstance {
         self.init(
             id: InstanceID(data.instance_id),
             path: String(data.path),
-            branch: String(data.branch_name),
+            branch: data.branch_name.length > 0 ? String(data.branch_name) : nil,
             branchID: BranchID(data.branch),
             revision: RevisionID(data.revision),
             staleness: Staleness(rawValue: data.stale)
