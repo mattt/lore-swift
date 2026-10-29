@@ -183,4 +183,109 @@ import Testing
         #expect(try repository.read("a.txt") == "one\n")
         #expect(try await repository.status().files.map(\.path) == ["a.txt"])
     }
+
+    @Test func stageMoveStagesAMove() async throws {
+        let repository = try await repositoryWithTwoRevisions()
+        try FileManager.default.moveItem(atPath: "\(repository.path)/b.txt", toPath: "\(repository.path)/c.txt")
+        try await repository.stageMove(from: "b.txt", to: "c.txt")
+        let status = try await repository.status()
+        #expect(status.files.map(\.path) == ["c.txt"])
+        #expect(status.files.first?.previousPath == "b.txt")
+        #expect(status.files.first?.action == .move)
+        #expect(status.files.first?.isStaged == true)
+
+        let revision = try await repository.commit(message: "Move")
+        #expect(
+            try await repository.changes(from: "main@2", to: .id(revision.id))
+                == [FileChange(path: "c.txt", previousPath: "b.txt", action: .move, kind: .file)]
+        )
+
+        let untracked = await #expect(throws: LoreError.self) {
+            try await repository.stageMove(from: "missing.txt", to: "d.txt")
+        }
+        #expect(untracked?.code == .nodeNotFound)
+        let notOnDisk = await #expect(throws: LoreError.self) {
+            try await repository.stageMove(from: "a.txt", to: "d.txt")
+        }
+        #expect(notOnDisk?.code == .internal)
+    }
+}
+
+@Suite struct DirtyFileTests {
+    /// Returns an offline repository with one revision that adds `a.txt` and `b.txt`.
+    private func repository() async throws -> Repository {
+        let repository = try await makeOfflineRepository()
+        try repository.write("one\n", to: "a.txt")
+        try repository.write("bee\n", to: "b.txt")
+        try await repository.stage(["."])
+        try await repository.commit(message: "One")
+        return repository
+    }
+
+    /// Returns the files that a status without a scan reports, by path.
+    private func unscannedFiles(_ repository: Repository) async throws -> [String: FileStatus] {
+        Dictionary(uniqueKeysWithValues: try await repository.status(scanning: false).files.map { ($0.path, $0) })
+    }
+
+    @Test func markDirtyReportsChangesWithoutAScan() async throws {
+        let repository = try await repository()
+        try repository.write("changed\n", to: "a.txt")
+        try repository.write("new\n", to: "c.txt")
+        try FileManager.default.removeItem(atPath: "\(repository.path)/b.txt")
+        #expect(try await repository.status(scanning: false).files.isEmpty)
+
+        try await repository.markDirty(["a.txt", "b.txt", "c.txt", "missing.txt", "/etc/hosts", ".lore/config.toml"])
+        let files = try await unscannedFiles(repository)
+        #expect(Set(files.keys) == ["a.txt", "b.txt", "c.txt"])
+        #expect(files["a.txt"]?.action == .keep)
+        #expect(files["b.txt"]?.action == .delete)
+        #expect(files["c.txt"]?.action == .add)
+        #expect(files.values.allSatisfy { $0.isDirty && !$0.isStaged })
+
+        // Marking doesn't stage the content.
+        let error = await #expect(throws: LoreError.self) {
+            try await repository.commit(message: "Two")
+        }
+        #expect(error?.code == .nothingStaged)
+        try await repository.stage(["a.txt"], scanning: false)
+        let revision = try await repository.commit(message: "Two")
+        #expect(try await repository.changes(in: .id(revision.id)).map(\.path) == ["a.txt"])
+    }
+
+    @Test func markMovedRecordsAMoveThatTheNextCommitRecords() async throws {
+        let repository = try await repository()
+        try FileManager.default.moveItem(atPath: "\(repository.path)/b.txt", toPath: "\(repository.path)/c.txt")
+        try await repository.markMoved(from: "b.txt", to: "c.txt")
+        let files = try await unscannedFiles(repository)
+        #expect(Array(files.keys) == ["c.txt"])
+        #expect(files["c.txt"]?.previousPath == "b.txt")
+        #expect(files["c.txt"]?.action == .move)
+        #expect(files["c.txt"]?.isStaged == false)
+
+        let revision = try await repository.commit(message: "Move")
+        #expect(
+            try await repository.changes(from: "main@1", to: .id(revision.id))
+                == [FileChange(path: "c.txt", previousPath: "b.txt", action: .move, kind: .file)]
+        )
+
+        let error = await #expect(throws: LoreError.self) {
+            try await repository.markMoved(from: "missing.txt", to: "d.txt")
+        }
+        #expect(error?.code == .nodeNotFound)
+    }
+
+    @Test func markCopiedReportsAnAddedFile() async throws {
+        let repository = try await repository()
+        try FileManager.default.copyItem(atPath: "\(repository.path)/b.txt", toPath: "\(repository.path)/c.txt")
+        try await repository.markCopied(from: "b.txt", to: "c.txt")
+        let files = try await unscannedFiles(repository)
+        #expect(Array(files.keys) == ["c.txt"])
+        #expect(files["c.txt"]?.action == .add)
+        #expect(files["c.txt"]?.previousPath == nil)
+
+        let error = await #expect(throws: LoreError.self) {
+            try await repository.markCopied(from: "missing.txt", to: "d.txt")
+        }
+        #expect(error?.code == .nodeNotFound)
+    }
 }
