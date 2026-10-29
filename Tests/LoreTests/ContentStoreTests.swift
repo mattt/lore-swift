@@ -680,6 +680,13 @@ import Testing
         #expect(ContentStore.Hash(revision).bytes == bytes)
     }
 
+    @Test func keyTypesHaveOnlyTheRawValuesThatTheHeaderDefines() {
+        #expect(ContentStore.KeyType(rawValue: LORE_KEY_TYPE_UNTYPED.rawValue) == .untyped)
+        #expect(ContentStore.KeyType(rawValue: LORE_KEY_TYPE_RESOLVE.rawValue) == .published)
+        #expect(ContentStore.KeyType(rawValue: LORE_KEY_TYPE_RESOLVE.rawValue + 1) == nil)
+        #expect(ContentStore.KeyType(rawValue: .max) == nil)
+    }
+
     @Test func argumentsAreZeroedApartFromTheFieldsThatTheBindingSets() throws {
         // The header requires every byte of a structure to be zero,
         // padding included, unless the binding sets it.

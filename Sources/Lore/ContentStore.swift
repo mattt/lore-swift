@@ -379,31 +379,51 @@ extension ContentStore {
     /// Corresponds to `lore_key_type_t`.
     public struct KeyType: RawRepresentable, Sendable, Hashable {
         /// The raw value of the kind.
-        public var rawValue: UInt32
+        public let rawValue: UInt32
 
         /// Creates a kind from its raw value.
-        public init(rawValue: UInt32) {
+        ///
+        /// Returns `nil` for a raw value that `lore_key_type_t` doesn't define.
+        public init?(rawValue: UInt32) {
+            guard Self.defined.contains(where: { $0.rawValue == rawValue }) else {
+                return nil
+            }
             self.rawValue = rawValue
         }
 
+        private init(_ type: lore_key_type_t) {
+            self.rawValue = type.rawValue
+        }
+
         /// A key without a specific kind.
-        public static let untyped = Self(rawValue: LORE_KEY_TYPE_UNTYPED.rawValue)
+        public static let untyped = Self(LORE_KEY_TYPE_UNTYPED)
         /// A key for branch metadata.
-        public static let branchMetadata = Self(rawValue: LORE_KEY_TYPE_BRANCH_METADATA.rawValue)
+        public static let branchMetadata = Self(LORE_KEY_TYPE_BRANCH_METADATA)
         /// A key for a branch identifier.
-        public static let branchID = Self(rawValue: LORE_KEY_TYPE_BRANCH_ID.rawValue)
+        public static let branchID = Self(LORE_KEY_TYPE_BRANCH_ID)
         /// A key for the latest revision of a branch.
-        public static let branchLatest = Self(rawValue: LORE_KEY_TYPE_BRANCH_LATEST_POINTER.rawValue)
+        public static let branchLatest = Self(LORE_KEY_TYPE_BRANCH_LATEST_POINTER)
         /// A key for repository metadata.
-        public static let repositoryMetadata = Self(rawValue: LORE_KEY_TYPE_REPOSITORY_METADATA.rawValue)
+        public static let repositoryMetadata = Self(LORE_KEY_TYPE_REPOSITORY_METADATA)
         /// A key for a repository identifier.
-        public static let repositoryID = Self(rawValue: LORE_KEY_TYPE_REPOSITORY_ID.rawValue)
+        public static let repositoryID = Self(LORE_KEY_TYPE_REPOSITORY_ID)
         /// A key for a repository instance.
-        public static let instance = Self(rawValue: LORE_KEY_TYPE_INSTANCE.rawValue)
+        public static let instance = Self(LORE_KEY_TYPE_INSTANCE)
         /// A key whose value is the hash of published content.
         ///
         /// See ``ContentStore/publish(_:as:in:context:uploading:)``.
-        public static let published = Self(rawValue: LORE_KEY_TYPE_RESOLVE.rawValue)
+        public static let published = Self(LORE_KEY_TYPE_RESOLVE)
+
+        /// The kinds that `lore_key_type_t` defines.
+        private static let defined: [Self] = [
+            .untyped, .branchMetadata, .branchID, .branchLatest,
+            .repositoryMetadata, .repositoryID, .instance, .published,
+        ]
+
+        /// The library value of the kind.
+        var libraryValue: lore_key_type_t {
+            lore_key_type_t(rawValue: rawValue)
+        }
     }
 
     /// Where a store put content.
@@ -1068,7 +1088,7 @@ extension ContentStore {
                 item.pointee.id = 1
                 item.pointee.partition = partition.libraryValue
                 item.pointee.key = key.libraryValue
-                item.pointee.key_type = lore_key_type_t(rawValue: type.rawValue)
+                item.pointee.key_type = type.libraryValue
                 arguments.pointee.items = lore_storage_mutable_load_item_array_t(ptr: item, count: 1)
             },
             transform: { event -> ItemEvent<Hash?>? in
@@ -1110,7 +1130,7 @@ extension ContentStore {
                 if let value {
                     item.pointee.value = value.libraryValue
                 }
-                item.pointee.key_type = lore_key_type_t(rawValue: type.rawValue)
+                item.pointee.key_type = type.libraryValue
                 arguments.pointee.items = lore_storage_mutable_store_item_array_t(ptr: item, count: 1)
             },
             transform: { event -> ItemEvent<Void>? in
@@ -1167,7 +1187,7 @@ extension ContentStore {
                 if let newValue {
                     item.pointee.value = newValue.libraryValue
                 }
-                item.pointee.key_type = lore_key_type_t(rawValue: type.rawValue)
+                item.pointee.key_type = type.libraryValue
                 arguments.pointee.items = lore_storage_mutable_compare_and_swap_item_array_t(ptr: item, count: 1)
             },
             transform: { event -> ItemEvent<Hash?>? in
@@ -1210,7 +1230,7 @@ extension ContentStore {
                 if let partition {
                     item.pointee.partition = partition.libraryValue
                 }
-                item.pointee.key_type = lore_key_type_t(rawValue: type.rawValue)
+                item.pointee.key_type = type.libraryValue
                 arguments.pointee.items = lore_storage_mutable_list_item_array_t(ptr: item, count: 1)
             },
             transform: ListEvent.init
