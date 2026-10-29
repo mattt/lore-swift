@@ -129,7 +129,7 @@ extension Repository {
     /// - Returns: The latest revision of the new branch.
     /// - Throws: ``LoreError`` if the library can't create the branch,
     ///   such as ``LoreError/Code/branchAlreadyExists``.
-    ///   Lore 0.11.0 refuses to create a branch in a repository without revisions
+    ///   Lore 0.12.0 refuses to create a branch in a repository without revisions
     ///   and reports that with ``LoreError/Code/internal``.
     @discardableResult
     public func createBranch(named name: String, category: String? = nil) async throws -> RevisionID? {
@@ -248,7 +248,7 @@ extension Repository {
     ///   The library refuses to archive the current branch
     ///   and reports that with ``LoreError/Code/branchNotFound``.
     ///   Unless the repository is offline,
-    ///   Lore 0.11.0 also reports ``LoreError/Code/branchNotFound``
+    ///   Lore 0.12.0 also reports ``LoreError/Code/branchNotFound``
     ///   for a branch that you never switched to,
     ///   with or without `includingLinks`.
     public func archiveBranch(

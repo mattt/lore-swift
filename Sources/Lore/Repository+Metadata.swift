@@ -14,7 +14,7 @@ public enum MetadataValue: Sendable, Hashable {
     ///
     /// Only ``RevisionTree/setMetadata(_:)`` can set a binary value.
     /// The other methods that set metadata can't:
-    /// in Lore 0.11.0,
+    /// in Lore 0.12.0,
     /// `lore_file_metadata_set` reads the text of a binary value
     /// as the path of a file,
     /// stores the file's content,

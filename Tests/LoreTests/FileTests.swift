@@ -1,3 +1,4 @@
+import CLore
 import Foundation
 import Testing
 
@@ -40,6 +41,21 @@ import Testing
             try await repository.history(of: "a.txt", limit: 0)
         }
         #expect(limitError?.code == .invalidArguments)
+    }
+
+    @Test func libraryListsOneRevisionMoreThanTheLength() async throws {
+        // If this test fails, the library has started to respect the length,
+        // and `Repository.history(of:from:on:limit:)` no longer needs to truncate.
+        let repository = try await repositoryWithTwoRevisions()
+        let entries = try await repository.perform(
+            lore_file_history_async,
+            configure: { (arguments: UnsafeMutablePointer<lore_file_history_args_t>, arena) in
+                arguments.pointee.path = arena.string("a.txt")
+                arguments.pointee.length = 1
+            },
+            transform: { event in event.pointee.tag == LORE_EVENT_FILE_HISTORY.rawValue ? true : nil }
+        )
+        #expect(entries.count == 2)
     }
 
     @Test func fileInfoReportsSizesAndChanges() async throws {
@@ -436,7 +452,7 @@ import Testing
         #expect(try await repository.storedContent(at: first) != nil)
         try await repository.obliterate(contentAt: first)
 
-        // Lore 0.11.0 reports the lines that need the removed version
+        // Lore 0.12.0 reports the lines that need the removed version
         // as unavailable, not as obliterated.
         let repositoryID = try await repository.state().repositoryID
         #expect(

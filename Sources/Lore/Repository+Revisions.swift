@@ -157,7 +157,7 @@ extension Repository {
     /// - Parameter message: The commit message for the new revision.
     /// - Returns: The new revision, with its metadata.
     /// - Throws: ``LoreError`` if the library can't restore the revision.
-    ///   Lore 0.11.0 reports an offline repository
+    ///   Lore 0.12.0 reports an offline repository
     ///   with ``LoreError/Code/internal``.
     @discardableResult
     public func restore(message: String) async throws -> Revision {
@@ -263,7 +263,7 @@ extension Repository {
                 }
             )
         } catch let error as LoreError where error.code == .internal && error.message == "no revision found" {
-            // Lore 0.11.0 reports a search without a match as an internal error.
+            // Lore 0.12.0 reports a search without a match as an internal error.
             return nil
         }
         guard let id = found.last else {
@@ -334,7 +334,7 @@ extension Repository {
     /// - Throws: ``LoreError`` if the library can't take the step,
     ///   such as ``LoreError/Code/revisionNotFound``
     ///   or ``LoreError/Code/localModifications``.
-    ///   Lore 0.11.0 reports a `start` that isn't in the history of `end`,
+    ///   Lore 0.12.0 reports a `start` that isn't in the history of `end`,
     ///   including the same revision,
     ///   with ``LoreError/Code/internal``.
     public func bisect(between start: RevisionSpecifier, and end: RevisionSpecifier) async throws -> BisectStep {

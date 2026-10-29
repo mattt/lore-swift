@@ -49,7 +49,7 @@ public enum NodeKind: UInt32, Sendable, Hashable {
     /// whose contents belong to the linked repository.
     ///
     /// The name comes from the comment on `LORE_NODE_TYPE_LINK`
-    /// in Lore 0.11.0's header,
+    /// in the header,
     /// which calls the kind a symbolic link;
     /// the header's revision tree functions treat it as a link to another repository.
     case symbolicLink = 2

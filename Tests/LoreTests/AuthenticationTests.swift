@@ -436,14 +436,88 @@ import Testing
             #expect(try await Authentication.credentials().map(\.authenticationURL) == [authenticationURL])
         }
 
+        @Test func repositoryLogOutRevokesTheRefreshToken() async throws {
+            let repository = try await makeRepository()
+            let refreshToken = "refresh-\(UUID().uuidString)"
+            try await logInInteractively(
+                repository.logInInteractively(),
+                approvingWith: try token(for: "erin"),
+                refreshToken: refreshToken
+            )
+            #expect(try await isRevoked(refreshToken) == false)
+
+            try await repository.logOut(userID: "erin")
+            #expect(try await isRevoked(refreshToken))
+            #expect(try await Authentication.credentials().isEmpty)
+        }
+
+        @Test func failedRevocationThrowsAfterTheLogOut() async throws {
+            let repository = try await makeRepository()
+            // The stub provider refuses to revoke this token.
+            try await logInInteractively(
+                repository.logInInteractively(),
+                approvingWith: try token(for: "erin"),
+                refreshToken: "unrevocable-\(UUID().uuidString)"
+            )
+
+            await #expect(throws: LoreError.self) {
+                try await repository.logOut(userID: "erin")
+            }
+            #expect(try await Authentication.credentials().isEmpty)
+        }
+
+        @Test func logOutWithAnAuthenticationURLDoesNotRevoke() async throws {
+            let repository = try await makeRepository()
+            let refreshToken = "refresh-\(UUID().uuidString)"
+            try await logInInteractively(
+                repository.logInInteractively(),
+                approvingWith: try token(for: "erin"),
+                refreshToken: refreshToken
+            )
+
+            try await Authentication.logOut(authenticationURL: authenticationURL, userID: "erin")
+            #expect(try await isRevoked(refreshToken) == false)
+            #expect(try await Authentication.credentials().isEmpty)
+        }
+
+        @Test func repositoryLogOutRevokesAServerLogin() async throws {
+            let repository = try await makeRepository()
+            let refreshToken = "refresh-\(UUID().uuidString)"
+            try await logInInteractively(
+                Authentication.logInInteractively(server: server),
+                approvingWith: try token(for: "erin"),
+                refreshToken: refreshToken
+            )
+
+            try await repository.logOut(userID: "erin")
+            #expect(try await isRevoked(refreshToken))
+            #expect(try await Authentication.credentials().isEmpty)
+        }
+
+        /// Creates a repository on the server
+        /// and leaves the token store empty.
+        private func makeRepository() async throws -> Repository {
+            try await Authentication.logIn(token: try token(for: "erin"), server: server)
+            let path = temporaryRepositoryPath("authenticated")
+            let repository = try await Repository.create(
+                at: path,
+                name: "\(server)/\(URL(filePath: path).lastPathComponent)",
+                options: Repository.Options(identity: "erin")
+            )
+            try await Authentication.removeAllCredentials()
+            return repository
+        }
+
         /// Runs an interactive login and approves it
         /// after the first pending update,
         /// so that the login reports at least one.
+        @discardableResult
         private func logInInteractively(
             _ updates: AsyncThrowingStream<
                 OperationUpdate<Authentication.LoginProgress, Authentication.User>, any Error
             >,
-            approvingWith token: String
+            approvingWith token: String,
+            refreshToken: String? = nil
         ) async throws -> (progress: [Authentication.LoginProgress], user: Authentication.User?) {
             var progress: [Authentication.LoginProgress] = []
             var userCode: String?
@@ -457,7 +531,7 @@ import Testing
                         userCode = code
                     case .pending:
                         if let code = userCode {
-                            try await approve(userCode: code, token: token)
+                            try await approve(userCode: code, token: token, refreshToken: refreshToken)
                             userCode = nil
                         }
                     }
@@ -469,16 +543,30 @@ import Testing
         }
 
         /// Approves a login at the stub identity provider, as the user would.
-        private func approve(userCode: String, token: String) async throws {
-            var request = URLRequest(url: try #require(URL(string: "\(issuer)/approve")))
+        private func approve(userCode: String, token: String, refreshToken: String?) async throws {
+            var fields = ["user_code": userCode, "access_token": token]
+            fields["refresh_token"] = refreshToken
+            let (_, status) = try await post(fields, to: "approve")
+            #expect(status == 200)
+        }
+
+        /// Returns whether the stub identity provider revoked a refresh token.
+        private func isRevoked(_ refreshToken: String) async throws -> Bool {
+            let (data, _) = try await post(["token": refreshToken], to: "revoked")
+            let reply = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            return try #require(reply?["revoked"] as? Bool)
+        }
+
+        /// Posts a form to the stub identity provider
+        /// and returns the reply and its status code.
+        private func post(_ fields: [String: String], to path: String) async throws -> (Data, Int?) {
+            var request = URLRequest(url: try #require(URL(string: "\(issuer)/\(path)")))
             request.httpMethod = "POST"
             var form = URLComponents()
-            form.queryItems = [
-                URLQueryItem(name: "user_code", value: userCode), URLQueryItem(name: "access_token", value: token),
-            ]
+            form.queryItems = fields.map { URLQueryItem(name: $0.key, value: $0.value) }
             request.httpBody = Data((form.percentEncodedQuery ?? "").utf8)
-            let (_, response) = try await URLSession.shared.data(for: request)
-            #expect((response as? HTTPURLResponse)?.statusCode == 200)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            return (data, (response as? HTTPURLResponse)?.statusCode)
         }
     }
 }

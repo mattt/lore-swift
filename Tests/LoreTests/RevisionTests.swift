@@ -178,7 +178,7 @@ import Testing
                 == (try await repository.changes(in: .id(revisions[2].id)))
         )
 
-        // Lore 0.11.0 refuses to commit changes staged before an amend.
+        // Lore 0.12.0 refuses to commit changes staged before an amend.
         let error = await #expect(throws: LoreError.self) {
             try await repository.commit(message: "Four")
         }
@@ -196,7 +196,7 @@ import Testing
         let error = await #expect(throws: LoreError.self) {
             try await repository.restore(message: "Restore")
         }
-        // Lore 0.11.0 reports this with the internal error code.
+        // Lore 0.12.0 reports this with the internal error code.
         #expect(error?.code == .internal)
     }
 }

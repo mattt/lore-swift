@@ -9,8 +9,12 @@ and the key set, and the device authorization flow (RFC 8628):
 - POST /device starts a login and returns a device code and a user code.
 - POST /approve with `user_code` and `access_token` approves a login,
   as the user would in a browser.
-- POST /token with `device_code` returns the access token of an approved login,
+  An optional `refresh_token` gives the login a refresh token.
+- POST /token with `device_code` returns the tokens of an approved login,
   or `authorization_pending`.
+- POST /revoke with `token` revokes a refresh token (RFC 7009).
+  It refuses a token that starts with `unrevocable-`.
+- POST /revoked with `token` returns whether the token was revoked.
 
 It runs with the system Python 3 and uses only the standard library.
 """
@@ -29,8 +33,10 @@ directory = sys.argv[2]
 issuer = f"http://127.0.0.1:{port}"
 
 lock = threading.Lock()
-# Logins by device code: the user code and, once approved, the access token.
+# Logins by device code: the user code and, once approved, the tokens.
 logins = {}
+# The refresh tokens that /revoke revoked.
+revoked = set()
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -47,7 +53,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             letters = "".join(secrets.choice(string.ascii_uppercase) for _ in range(8))
             user_code = f"{letters[:4]}-{letters[4:]}"
             with lock:
-                logins[device_code] = {"user_code": user_code, "access_token": None}
+                logins[device_code] = {"user_code": user_code, "access_token": None, "refresh_token": ""}
             self.reply(
                 200,
                 {
@@ -63,6 +69,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 for login in logins.values():
                     if login["user_code"] == field("user_code"):
                         login["access_token"] = field("access_token")
+                        login["refresh_token"] = field("refresh_token")
                         self.reply(200, {})
                         return
             self.reply(404, {"error": "unknown user code"})
@@ -74,14 +81,24 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             elif login["access_token"] is None:
                 self.reply(400, {"error": "authorization_pending"})
             else:
-                self.reply(
-                    200,
-                    {
-                        "access_token": login["access_token"],
-                        "token_type": "Bearer",
-                        "expires_in": 3600,
-                    },
-                )
+                tokens = {
+                    "access_token": login["access_token"],
+                    "token_type": "Bearer",
+                    "expires_in": 3600,
+                }
+                if login["refresh_token"]:
+                    tokens["refresh_token"] = login["refresh_token"]
+                self.reply(200, tokens)
+        elif self.path == "/revoke":
+            if field("token").startswith("unrevocable-"):
+                self.reply(503, {"error": "temporarily_unavailable"})
+            else:
+                with lock:
+                    revoked.add(field("token"))
+                self.reply(200, {})
+        elif self.path == "/revoked":
+            with lock:
+                self.reply(200, {"revoked": field("token") in revoked})
         else:
             self.reply(404, {"error": "not found"})
 

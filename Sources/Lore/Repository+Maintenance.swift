@@ -31,7 +31,7 @@ extension Repository {
     /// and doesn't connect to the server.
     ///
     /// - Parameter key: The key.
-    ///   Lore 0.11.0 reads only ``ConfigurationKey/remoteURL``
+    ///   Lore 0.12.0 reads only ``ConfigurationKey/remoteURL``
     ///   and ``ConfigurationKey/identity``.
     /// - Returns: The value, or `nil` if the configuration has no value for the key.
     /// - Throws: ``LoreError`` if the library can't read the configuration,
@@ -378,7 +378,7 @@ extension Repository {
     /// and compacts the store's files beyond the size that it sets.
     /// The limits are `max_capacity` (in fragments) and `max_size` (in bytes)
     /// in the `[store]` table of `.lore/config.toml`.
-    /// In Lore 0.11.0, a new repository sets 2,000,000 fragments and 10 GiB,
+    /// In Lore 0.12.0, a new repository sets 2,000,000 fragments and 10 GiB,
     /// and the method changes nothing while the store stays below both.
     /// Evicted content can't be restored from the local store.
     /// The method doesn't connect to the server.
@@ -395,7 +395,7 @@ extension Repository {
 
     /// Waits for the library's background work to finish.
     ///
-    /// In Lore 0.11.0,
+    /// In Lore 0.12.0,
     /// the method waits for the background work of every repository in the process,
     /// not only this one.
     ///
@@ -515,11 +515,11 @@ extension Repository {
     ///
     /// The method doesn't connect to the server.
     ///
-    /// In Lore 0.11.0,
+    /// In Lore 0.12.0,
     /// moving the directory right after a commit in the same process
-    /// often left the checkout without a current revision.
+    /// can leave the checkout without a current revision.
     /// Calling ``flush()`` and ``releaseStores()`` before the move
-    /// made that rarer, but didn't prevent it.
+    /// makes that rare.
     ///
     /// - Throws: ``LoreError`` if the library can't change the store.
     public func updateInstancePath() async throws {

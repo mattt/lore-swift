@@ -10,11 +10,11 @@
 
 set -euo pipefail
 
-readonly LORE_VERSION="0.11.0"
+readonly LORE_VERSION="0.12.0"
 readonly RELEASE_URL="https://github.com/EpicGames/lore/releases/download/v${LORE_VERSION}"
 
 readonly SERVER_ASSET="loreserver-v${LORE_VERSION}-aarch64-apple-darwin.tar.gz"
-readonly SERVER_SHA256="11445cb42d6a03bbd1c4285b5363c5fa38855fe8186b109d1daa769032f49ebd"
+readonly SERVER_SHA256="75e2f515e4aa0d71fbfbdede839c3404d18c5761236ec44221c368dc18515f39"
 
 for argument in "$@"; do
     case "$argument" in

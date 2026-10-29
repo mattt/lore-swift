@@ -305,6 +305,9 @@ extension Authentication {
     ///
     /// The library removes nothing, and doesn't throw,
     /// if it has no credentials for the URL.
+    /// It doesn't revoke the refresh token of an OpenID Connect login,
+    /// because revoking needs the client that the repository's server names;
+    /// ``Repository/logOut(userID:resource:)`` revokes it.
     ///
     /// - Parameters:
     ///   - authenticationURL: The URL of the authentication service,
@@ -431,6 +434,9 @@ extension Repository {
     /// of the repository's server.
     ///
     /// The library asks the server for its authentication service.
+    /// After it removes a login that has a refresh token,
+    /// it revokes the refresh token at the service
+    /// if the service supports revocation.
     ///
     /// - Parameters:
     ///   - userID: The identifier of the user whose credentials to remove,
@@ -440,7 +446,10 @@ extension Repository {
     ///     and all of the user's authorization tokens.
     ///     The library ignores the resource if `userID` is `nil`.
     /// - Throws: ``LoreError`` if the library can't update the token store,
-    ///   such as ``LoreError/Code/noRemote`` for a repository without a server.
+    ///   such as ``LoreError/Code/noRemote`` for a repository without a server,
+    ///   or if the service doesn't revoke a refresh token.
+    ///   The library removes the credentials before it revokes the tokens,
+    ///   so it has removed them even if the method throws for a revocation.
     public func logOut(userID: String? = nil, resource: String? = nil) async throws {
         try await logOut(authenticationURL: nil, userID: userID, resource: resource)
     }

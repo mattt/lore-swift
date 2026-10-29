@@ -231,7 +231,7 @@ extension Repository {
     /// - Returns: The merge revision on the target branch, with its metadata.
     /// - Throws: ``LoreError`` if the library can't merge,
     ///   such as ``LoreError/Code/branchNotFound``.
-    ///   Lore 0.11.0 reports a target branch with newer revisions
+    ///   Lore 0.12.0 reports a target branch with newer revisions
     ///   and an offline repository
     ///   with ``LoreError/Code/internal``.
     @discardableResult
@@ -312,7 +312,7 @@ extension Repository {
     /// stays in progress until you ``commit(message:linkMessages:)``,
     /// which records the same `cherry-picked-from` value.
     ///
-    /// Lore 0.11.0 has no functions to resolve or abort a cherry-pick:
+    /// Lore 0.12.0 has no functions to resolve or abort a cherry-pick:
     /// ``resolveConflicts(in:keeping:)`` and ``abortMerge()``
     /// throw ``LoreError/Code/internal`` for one.
     /// To discard a cherry-pick that conflicts,
@@ -364,17 +364,17 @@ extension Repository {
     /// ``FileStatus/conflictResolution`` reports how a file was resolved.
     ///
     /// In a merge that ``sync(to:discardingLocalChanges:)`` stages,
-    /// Lore 0.11.0 resolves ``MergeSide/mine``
+    /// Lore 0.12.0 resolves ``MergeSide/mine``
     /// with the version from the server
     /// and ``MergeSide/theirs`` with your local version,
     /// the reverse of the files that end with `~mine` and `~theirs`.
-    /// Lore 0.11.0 can't resolve the conflicts of a cherry-pick.
+    /// Lore 0.12.0 can't resolve the conflicts of a cherry-pick.
     ///
     /// A directory path with ``MergeSide/merged`` resolves the files under it.
     /// A directory path with ``MergeSide/mine`` or ``MergeSide/theirs``
     /// replaces every file under it that the operation changed,
     /// including files without conflicts,
-    /// and Lore 0.11.0 then reports some of the files without conflicts,
+    /// and Lore 0.12.0 then reports some of the files without conflicts,
     /// such as files that the merge added, as in conflict.
     /// To keep a side for only the files in conflict,
     /// pass ``MergeResult/conflicts``.
@@ -385,9 +385,9 @@ extension Repository {
     ///   - side: The version of each file that resolves its conflict.
     /// - Returns: The paths of the files that the call resolved or replaced.
     ///   After a directory path with ``MergeSide/mine`` or ``MergeSide/theirs``,
-    ///   the paths can include files that Lore 0.11.0 then reports as in conflict.
+    ///   the paths can include files that Lore 0.12.0 then reports as in conflict.
     /// - Throws: ``LoreError`` if the library can't resolve the files.
-    ///   Lore 0.11.0 reports that no merge is in progress
+    ///   Lore 0.12.0 reports that no merge is in progress
     ///   with ``LoreError/Code/internal``.
     @discardableResult
     public func resolveConflicts(in paths: [String], keeping side: MergeSide = .merged) async throws -> [String] {
@@ -415,11 +415,11 @@ extension Repository {
     ///
     /// Unresolving a file doesn't change it in the working directory;
     /// call ``restartMerge(of:)`` to write its conflict markers again.
-    /// Lore 0.11.0 can't unresolve a file in a linked repository
+    /// Lore 0.12.0 can't unresolve a file in a linked repository
     /// and throws ``LoreError/Code/internal``.
     ///
     /// - Parameter paths: The paths of the files, relative to the repository directory.
-    ///   Lore 0.11.0 ignores directories.
+    ///   Lore 0.12.0 ignores directories.
     /// - Returns: The paths of the files that were marked as in conflict.
     /// - Throws: ``LoreError`` if the library can't unresolve the files.
     @discardableResult
@@ -436,11 +436,11 @@ extension Repository {
     /// Restarting writes each file with conflict markers again
     /// and marks it as in conflict,
     /// discarding its content in the working directory.
-    /// Lore 0.11.0 can't restart a file in a linked repository
+    /// Lore 0.12.0 can't restart a file in a linked repository
     /// and throws ``LoreError/Code/invalidArguments``.
     ///
     /// - Parameter paths: The paths of the files, relative to the repository directory.
-    ///   Lore 0.11.0 ignores directories.
+    ///   Lore 0.12.0 ignores directories.
     /// - Throws: ``LoreError`` if the library can't restart the files.
     public func restartMerge(of paths: [String]) async throws {
         _ = try await mergeOrRevert(
@@ -457,12 +457,12 @@ extension Repository {
     /// removes the files that the merge wrote for conflicts,
     /// and keeps changes to files that the merge didn't touch.
     ///
-    /// Lore 0.11.0 can't abort a cherry-pick;
+    /// Lore 0.12.0 can't abort a cherry-pick;
     /// call ``sync(to:discardingLocalChanges:)``
     /// with `discardingLocalChanges` set to `true` to discard one.
     ///
     /// - Throws: ``LoreError`` if the library can't abort.
-    ///   Lore 0.11.0 reports that no merge is in progress
+    ///   Lore 0.12.0 reports that no merge is in progress
     ///   with ``LoreError/Code/internal``.
     public func abortMerge() async throws {
         _ = try await mergeOrRevert(
@@ -477,13 +477,13 @@ extension Repository {
     /// after you ``unstage(_:)`` a change that the merge made.
     /// A file whose conflict you hadn't resolved is in conflict again.
     ///
-    /// Lore 0.11.0 supports this method only for a merge of a branch:
+    /// Lore 0.12.0 supports this method only for a merge of a branch:
     /// for a revert or a cherry-pick,
     /// it throws ``LoreError/Code/internal``.
     ///
     /// - Parameter paths: The paths of the files, relative to the repository directory.
     /// - Throws: ``LoreError`` if the library can't stage the files.
-    ///   Lore 0.11.0 reports that no merge is in progress
+    ///   Lore 0.12.0 reports that no merge is in progress
     ///   with ``LoreError/Code/internal``.
     public func stageMerged(_ paths: [String]) async throws {
         _ = try await perform(

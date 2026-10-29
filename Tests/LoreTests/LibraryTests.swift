@@ -7,7 +7,7 @@ import Testing
 
 @Suite struct LibraryTests {
     @Test func versionStartsWithInterfaceVersion() {
-        #expect(Library.interfaceVersion == "0.11.0")
+        #expect(Library.interfaceVersion == "0.12.0")
         #expect(Library.version.hasPrefix(Library.interfaceVersion + "+"))
     }
 

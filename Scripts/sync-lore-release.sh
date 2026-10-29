@@ -12,7 +12,10 @@
 #   --release <version>  Use this Lore release instead of the latest one.
 #
 # The script compares the Lore release with LORE_VERSION and stops
-# if the package already uses it or a pull request for it is open.
+# if the package already uses it.
+# If a pull request for the release is open, the script stops after it starts
+# the CI workflow on the pull request's branch,
+# unless the workflow has run for the branch's head commit.
 # Otherwise, it sets the version and the SHA-256 digests that GitHub publishes
 # for the release assets in Scripts/build-xcframework.sh
 # and Scripts/fetch-loreserver.sh, checks the downloaded assets against them,
@@ -52,7 +55,7 @@ while [ $# -gt 0 ]; do
         shift
         ;;
     -h | --help)
-        sed -n '3,29p' "$0" | sed 's/^# \{0,1\}//'
+        sed -n '3,32p' "$0" | sed 's/^# \{0,1\}//'
         exit 0
         ;;
     *)
@@ -482,8 +485,8 @@ if ! pull_request="$(gh pr create --repo "$REPOSITORY" --base "$BASE_BRANCH" \
 fi
 notice "Opened $pull_request."
 
-# GitHub doesn't run workflows for a pull request
-# that GITHUB_TOKEN opens, but it runs a dispatched workflow.
+# The pull_request run for a pull request that GITHUB_TOKEN opens
+# waits for a maintainer's approval, but a dispatched run starts at once.
 if in_actions; then
     start_ci "$(git rev-parse HEAD)"
 fi

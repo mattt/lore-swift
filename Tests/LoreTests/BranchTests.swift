@@ -44,7 +44,7 @@ import Testing
         let error = await #expect(throws: LoreError.self) {
             try await repository.createBranch(named: "feature")
         }
-        // Lore 0.11.0 reports this with the internal error code.
+        // Lore 0.12.0 reports this with the internal error code.
         #expect(error?.code == .internal)
     }
 

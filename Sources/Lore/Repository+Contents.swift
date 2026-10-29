@@ -78,7 +78,7 @@ extension Repository {
     ///
     /// The content is that of the version of the file in the current revision,
     /// not the file in the working directory.
-    /// In Lore 0.11.0,
+    /// In Lore 0.12.0,
     /// that's also the case for a file whose change is staged.
     ///
     /// - Parameter path: The path of the file, relative to the repository directory.
@@ -146,7 +146,7 @@ extension Repository {
     ///     relative to the repository directory.
     ///   - revision: The revision to read,
     ///     or `nil` for the current revision.
-    ///     In Lore 0.11.0,
+    ///     In Lore 0.12.0,
     ///     `nil` reads the current revision's version
     ///     even for a file whose change is staged.
     ///   - destination: The path of the file to write,
@@ -200,10 +200,10 @@ extension Repository {
         replacingExistingFile: Bool,
         configure: (UnsafeMutablePointer<lore_file_write_args_t>, Arena) -> Void
     ) async throws {
-        // Lore 0.11.0 resolves a relative destination
-        // against the current directory of the process
-        // to decide whether the call writes inside the repository,
-        // and rejects one inside the repository with error 19,
+        // Lore 0.12.0 fails to write to a relative destination,
+        // such as `copy.txt` (error 19)
+        // or a path from the current directory of the process into the repository
+        // (an internal error),
         // so the binding passes an absolute path.
         let directory = URL(fileURLWithPath: absolutePath, isDirectory: true)
         let destination = URL(fileURLWithPath: destination, relativeTo: directory).standardizedFileURL.path
@@ -226,7 +226,7 @@ extension Repository {
     /// The library removes the content of the version of the file
     /// in the current revision from the local store,
     /// and from the server unless the repository is offline.
-    /// In Lore 0.11.0,
+    /// In Lore 0.12.0,
     /// that's also the version it removes for a file whose change is staged.
     /// Every revision whose file has that content keeps its record of the file,
     /// but no longer has its content:
@@ -239,7 +239,7 @@ extension Repository {
     /// The method also deletes the file from the working directory
     /// and stages its deletion,
     /// which replaces a staged change to the file.
-    /// In Lore 0.11.0,
+    /// In Lore 0.12.0,
     /// committing that deletion fails with ``LoreError/Code/internal``;
     /// ``unstage(_:)`` and ``stage(_:scanning:)`` the path again first.
     ///

@@ -140,7 +140,7 @@ extension Repository {
     /// - Throws: ``LoreError`` if the library can't stage the move,
     ///   such as ``LoreError/Code/nodeNotFound``
     ///   for a source that the repository doesn't track.
-    ///   Lore 0.11.0 reports a destination
+    ///   Lore 0.12.0 reports a destination
     ///   that isn't in the working directory
     ///   with ``LoreError/Code/internal``.
     public func stageMove(from source: String, to destination: String) async throws {
@@ -211,7 +211,7 @@ extension Repository {
     /// and makes it the current revision and the latest revision of the branch.
     /// The changes that you've staged aren't part of it.
     ///
-    /// In Lore 0.11.0,
+    /// In Lore 0.12.0,
     /// committing changes that you staged before an amend
     /// fails with ``LoreError/Code/internal``;
     /// ``unstage(_:)`` and ``stage(_:scanning:)`` them again first.

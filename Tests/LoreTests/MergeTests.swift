@@ -177,6 +177,12 @@ let conflictMarkers = "<<<<<<< ours\nmain\n||||||| original\nbase\n=======\nfeat
         try await repository.mergeBranch(named: "feature")
         try await repository.resolveConflicts(in: ["a.txt"], keeping: .theirs)
 
+        // Lore 0.12.0 ignores directories.
+        #expect(try await repository.unresolveConflicts(in: ["."]).isEmpty)
+        #expect(try await repository.status(ofFile: "a.txt")?.conflictResolution == .theirs)
+        try await repository.restartMerge(of: ["."])
+        #expect(try repository.read("a.txt") == "feature\n")
+
         #expect(try await repository.unresolveConflicts(in: ["a.txt"]) == ["a.txt"])
         #expect(try repository.read("a.txt") == "feature\n")
         let unresolved = try #require(try await repository.status(ofFile: "a.txt"))
@@ -435,7 +441,7 @@ let conflictMarkers = "<<<<<<< ours\nmain\n||||||| original\nbase\n=======\nfeat
             #expect([try repository.read("a.txt"), try repository.read("one.txt")] == contents)
         }
 
-        // For a directory, Lore 0.11.0 restores the content at the branch point
+        // For a directory, Lore 0.12.0 restores the content at the branch point
         // instead of the content of the merge.
         for deletingUntrackedFiles in [false, true] {
             try repository.write("scratch\n", to: "a.txt")
@@ -472,7 +478,7 @@ let conflictMarkers = "<<<<<<< ours\nmain\n||||||| original\nbase\n=======\nfeat
         let error = await #expect(throws: LoreError.self) {
             try await repository.mergeBranch(into: "main", message: "Merge")
         }
-        // Lore 0.11.0 reports this with the internal error code.
+        // Lore 0.12.0 reports this with the internal error code.
         #expect(error?.code == .internal)
     }
 }
@@ -629,7 +635,7 @@ let conflictMarkers = "<<<<<<< ours\nmain\n||||||| original\nbase\n=======\nfeat
 
         // Resolving a directory with a side also replaces `c.txt`,
         // which the revert changed without conflict,
-        // and Lore 0.11.0 then reports `c.txt` as in conflict.
+        // and Lore 0.12.0 then reports `c.txt` as in conflict.
         #expect(
             try await repository.resolveConflicts(in: ["."], keeping: .theirs).sorted() == ["a.txt", "b.txt", "c.txt"]
         )

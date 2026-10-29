@@ -309,7 +309,7 @@ import Testing
         #expect(try app.read("vendor/library/x.txt") == "x1\n")
         #expect(try await app.links().first?.revision == pin)
 
-        // Online, Lore 0.11.0 can't archive a branch that you never switched to,
+        // Online, Lore 0.12.0 can't archive a branch that you never switched to,
         // with or without links.
         try await app.createBranch(named: "unused")
         try await app.push(branch: "unused")
@@ -431,7 +431,7 @@ import Testing
         )
         #expect(try app.read("vendor/library/x.txt") == "x main\n")
 
-        // Lore 0.11.0 can't unresolve or restart a file in a linked repository.
+        // Lore 0.12.0 can't unresolve or restart a file in a linked repository.
         let unresolve = await #expect(throws: LoreError.self) {
             try await app.unresolveConflicts(in: ["vendor/library/x.txt"])
         }
@@ -460,7 +460,7 @@ import Testing
         try await app.stage(["."])
         try await app.commit(message: "Main")
 
-        // Lore 0.11.0 stops at the conflict in the link
+        // Lore 0.12.0 stops at the conflict in the link
         // before it merges this repository.
         let result = try await app.mergeBranch(named: "feature", message: "Merge feature")
         #expect(result.sourceRevision == nil)

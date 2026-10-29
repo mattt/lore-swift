@@ -201,7 +201,7 @@ import Testing
         let context = [UInt8](repeating: 5, count: 16)
         let put = try await store.put(Data("found\n".utf8), in: id, context: context)
 
-        // Lore 0.11.0 finds the hash under another partition and another context.
+        // Lore 0.12.0 finds the hash under another partition and another context.
         let otherContext = try #require(ContentAddress(hash: put.address.hash, context: zeroContext))
         for (address, partition) in [(put.address, otherID), (otherContext, id)] {
             #expect(try await store.contents(at: address, in: partition) == Data("found\n".utf8))
@@ -364,7 +364,7 @@ import Testing
         #expect(listed == [.init(key: try #require(ContentStore.Hash(bytes: listedKey)), value: hash(2))])
         #expect(try await store.value(forKey: listed[0].key, ofType: .published, in: id) == hash(2))
         #expect(Set(try await store.entries(ofType: .published, in: nil).map(\.value)) == [hash(2), hash(3)])
-        // Lore 0.11.0 lists no untyped keys.
+        // Lore 0.12.0 lists no untyped keys.
         #expect(try await store.entries(ofType: .untyped, in: id).isEmpty)
         try await store.setValue(nil, forKey: hash(1), ofType: .published, in: id)
         #expect(try await store.entries(ofType: .published, in: id).isEmpty)
