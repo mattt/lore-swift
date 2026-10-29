@@ -466,7 +466,7 @@ extension ContentStore {
     /// A returned value means that every side that ran succeeded:
     /// the obliteration throws if a side that ran fails.
     /// A `false` flag means that the side didn't run.
-    public struct ObliterateResult: Sendable, Hashable {
+    public struct ObliterationResult: Sendable, Hashable {
         /// The address of the content.
         public var address: ContentAddress
 
@@ -769,7 +769,7 @@ extension ContentStore {
     /// - Throws: ``LoreError`` if either side can't remove the content.
     ///   The other side, such as the local store, may already have removed it.
     @discardableResult
-    public func obliterate(_ address: ContentAddress, in partition: RepositoryID) async throws -> ObliterateResult {
+    public func obliterate(_ address: ContentAddress, in partition: RepositoryID) async throws -> ObliterationResult {
         let hasServer = remote != nil
         let events = try await call(
             lore_storage_obliterate_async,
@@ -781,14 +781,14 @@ extension ContentStore {
                 item.pointee.address = address.libraryValue
                 arguments.pointee.items = lore_storage_obliterate_item_array_t(ptr: item, count: 1)
             },
-            transform: { event -> ItemEvent<ObliterateResult>? in
+            transform: { event -> ItemEvent<ObliterationResult>? in
                 guard event.pointee.tag == LORE_EVENT_STORAGE_OBLITERATE_ITEM_COMPLETE.rawValue else {
                     return nil
                 }
                 let data = event.pointee.storage_obliterate_item_complete
                 return ItemEvent(
                     error: data.error,
-                    value: ObliterateResult(
+                    value: ObliterationResult(
                         address: ContentAddress(data.address),
                         isRemovedLocally: Bool(data.local_success) && !Bool(data.local_skipped),
                         // Without a server, the library reports the server's side as a success.
