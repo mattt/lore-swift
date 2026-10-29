@@ -35,8 +35,16 @@ import Testing
         #expect(dump.repositoryID == (try await repository.state().repositoryID))
         #expect(dump.revision == revision.id)
         #expect(dump.revisionNumber == 1)
-        #expect(dump.treeHash.count == 32)
+        #expect(dump.treeHash != revision.id.bytes)
+        #expect(dump.treeHash.contains { $0 != 0 })
+        #expect(try await repository.stateDump(of: "main@1").treeHash == dump.treeHash)
+        // The size that Lore 0.11.0 reports for this tree.
+        #expect(dump.treeSize == 13)
         #expect(dump.nodes.map(\.path) == ["dir/", "dir/b.txt", "a.txt"])
+        // The library records a mode of 0 and flags 1 for each file here,
+        // and flags 0 for a directory.
+        #expect(dump.nodes.map(\.mode) == [0, 0, 0])
+        #expect(dump.nodes.map(\.flags) == [0, 1, 1])
         let file = try #require(dump.nodes.last)
         #expect(file.size == 6)
         let stored = try #require(try await repository.storedContent(of: "a.txt"))
@@ -46,6 +54,13 @@ import Testing
         #expect(directory.siblingID == file.id)
 
         #expect(try await repository.stateDump(maximumDepth: 1).nodes.map(\.path) == ["dir/", "a.txt"])
+        #expect(try await repository.stateDump(maximumDepth: 2).nodes.count == 3)
+        for depth in [0, -1] {
+            let error = await #expect(throws: LoreError.self) {
+                try await repository.stateDump(maximumDepth: depth)
+            }
+            #expect(error?.code == .invalidArguments)
+        }
         #expect(try await repository.stateDump(under: "dir").nodes.map(\.path) == ["dir/", "dir/b.txt"])
 
         let missingPath = await #expect(throws: LoreError.self) {
@@ -72,6 +87,15 @@ import Testing
         let committed = try await repository.stateDump(of: "main@1")
         #expect(committed.revision == revision.id)
         #expect(committed.nodes.last?.size == 6)
+        #expect(staged.treeHash != committed.treeHash)
+    }
+
+    @Test func stateDumpOfARepositoryWithoutRevisions() async throws {
+        let repository = try await makeOfflineRepository()
+        let dump = try await repository.stateDump()
+        #expect(dump.revision == nil)
+        #expect(dump.revisionNumber == 0)
+        #expect(dump.nodes.isEmpty)
     }
 
     @Test func storeEntriesDescribeTheLocalStore() async throws {
@@ -136,6 +160,10 @@ import Testing
     @Test func collectingGarbageKeepsTheContent() async throws {
         let (repository, _) = try await makeRepository()
         let stored = try await repository.storedContent(of: "a.txt")
+        // The limits that the method enforces, which a new repository sets.
+        let configuration = try repository.read(".lore/config.toml")
+        #expect(configuration.contains("[store]\nmax_capacity = 2000000\n"))
+        #expect(configuration.contains("\nmax_size = 10737418240\n"))
         try await repository.collectGarbage()
         #expect(try await repository.storedContent(of: "a.txt") == stored)
         #expect(try await repository.verifyState() == false)

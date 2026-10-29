@@ -134,22 +134,32 @@ extension Repository {
     ///     or `nil` for the whole tree.
     ///     The nodes include the node at the path.
     ///   - maximumDepth: The number of levels of the tree to report,
+    ///     at least 1,
     ///     or `nil` for every level.
     /// - Returns: The state and its nodes.
     /// - Throws: ``LoreError`` if the library can't read the state,
     ///   such as ``LoreError/Code/revisionNotFound``,
-    ///   or ``LoreError/Code/nodeNotFound`` for a path that the state doesn't have.
+    ///   or ``LoreError/Code/nodeNotFound`` for a path that the state doesn't have,
+    ///   or with ``LoreError/Code/invalidArguments``
+    ///   if `maximumDepth` is less than 1.
     public func stateDump(
         of revision: RevisionSpecifier? = nil,
         under path: String? = nil,
         maximumDepth: Int? = nil
     ) async throws -> StateDump {
+        if let maximumDepth, maximumDepth < 1 {
+            // The library reads 0 as no limit.
+            throw LoreError(
+                code: .invalidArguments,
+                message: "The maximum depth must be at least 1, not \(maximumDepth)."
+            )
+        }
         let events = try await perform(
             lore_repository_dump_async,
             configure: { (arguments: UnsafeMutablePointer<lore_repository_dump_args_t>, arena) in
                 arguments.pointee.revision = arena.string(revision?.rawValue)
                 arguments.pointee.path = arena.string(path)
-                arguments.pointee.max_depth = UInt(clamping: max(maximumDepth ?? 0, 0))
+                arguments.pointee.max_depth = UInt(clamping: maximumDepth ?? 0)
             },
             transform: StateDumpEvent.init
         )
@@ -228,8 +238,8 @@ private enum StateDumpEvent: Sendable {
 public struct StoreEntry: Sendable, Hashable {
     /// How much of an address a store matched.
     public enum Match: UInt32, Sendable, Hashable {
-        /// The store holds the address:
-        /// its hash with the context of this repository.
+        /// The store holds the exact address that you asked for:
+        /// the same hash with the same context.
         case address = 0
         /// The store holds the hash for this repository with another context.
         case hashInRepository = 1
@@ -363,11 +373,13 @@ extension Repository {
 
     /// Collects garbage in the repository's local store.
     ///
-    /// The library evicts the least recently used content
+    /// The library evicts the least recently accessed content
     /// beyond the capacity that the repository's store configuration sets
     /// and compacts the store's files beyond the size that it sets.
-    /// A repository created with the library's defaults sets neither,
-    /// and then the method changes nothing.
+    /// The limits are `max_capacity` (in fragments) and `max_size` (in bytes)
+    /// in the `[store]` table of `.lore/config.toml`.
+    /// In Lore 0.11.0, a new repository sets 2,000,000 fragments and 10 GiB,
+    /// and the method changes nothing while the store stays below both.
     /// Evicted content can't be restored from the local store.
     /// The method doesn't connect to the server.
     ///
@@ -465,8 +477,7 @@ extension Repository {
     /// The method reads the local store
     /// and doesn't connect to the server.
     ///
-    /// - Returns: The instances that describe a checkout,
-    ///   followed by the stale ones.
+    /// - Returns: The instances that the store records, stale ones included.
     /// - Throws: ``LoreError`` if the library can't read the store.
     public func instances() async throws -> [RepositoryInstance] {
         try await perform(
@@ -485,8 +496,6 @@ extension Repository {
     /// The method removes only those registrations,
     /// and no files,
     /// and it never removes this checkout's own registration.
-    /// To register a checkout again,
-    /// call ``updateInstancePath()`` in it.
     /// The method doesn't connect to the server.
     ///
     /// - Returns: The instances that the method removed.
@@ -504,9 +513,7 @@ extension Repository {
     /// Records the repository directory as the path of this checkout's instance,
     /// such as after you move the directory.
     ///
-    /// The method also removes the registration of any other instance
-    /// at the same path.
-    /// It doesn't connect to the server.
+    /// The method doesn't connect to the server.
     ///
     /// In Lore 0.11.0,
     /// moving the directory right after a commit in the same process
