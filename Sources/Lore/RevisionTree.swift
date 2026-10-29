@@ -1021,7 +1021,7 @@ extension RevisionTree {
     /// - Returns: The keys that had a value.
     /// - Throws: ``LoreError`` if the library can't clear the metadata.
     @discardableResult
-    public func clearMetadata(forKeys keys: [String]) async throws -> Set<String> {
+    public func clearMetadata(keys: [String]) async throws -> Set<String> {
         let removed = try await perform(
             lore_revision_tree_metadata_clear_async,
             configure: { (arguments: UnsafeMutablePointer<lore_revision_tree_metadata_clear_args_t>, handle, arena) in

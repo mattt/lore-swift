@@ -216,7 +216,7 @@ import Testing
         #expect(root?.code == .invalidArguments)
 
         try await tree.setMetadata(["ticket": .string("ART-42"), "scratch": .boolean(true)])
-        #expect(try await tree.clearMetadata(forKeys: ["scratch", "missing"]) == ["scratch"])
+        #expect(try await tree.clearMetadata(keys: ["scratch", "missing"]) == ["scratch"])
 
         let revision = try await tree.commit(message: "Edit in memory")
         #expect(revision.number == 2)
@@ -289,10 +289,10 @@ import Testing
         #expect(try await tree.metadata(forKeys: Array(values.keys) + ["missing"]) == values)
         // A value that the tree has takes precedence over the loaded revision's.
         #expect(try await tree.metadata(forKey: "message", includingLoadedRevision: true) == .string("Typed values"))
-        #expect(try await tree.clearMetadata(forKeys: ["count", "count", "missing"]) == ["count"])
+        #expect(try await tree.clearMetadata(keys: ["count", "count", "missing"]) == ["count"])
         #expect(try await tree.metadata(forKey: "count") == nil)
         // Clearing doesn't reach the loaded revision's values.
-        #expect(try await tree.clearMetadata(forKeys: ["timestamp"]).isEmpty)
+        #expect(try await tree.clearMetadata(keys: ["timestamp"]).isEmpty)
         #expect(
             try await tree.metadata(forKey: "timestamp", includingLoadedRevision: true) == first.metadata["timestamp"]
         )
@@ -667,7 +667,7 @@ import Testing
             { try await tree.move([.init(node: node, to: .root, name: "y")]) },
             { _ = try await tree.metadata(forKeys: ["message"]) },
             { try await tree.setMetadata(["message": .string("x")]) },
-            { try await tree.clearMetadata(forKeys: ["message"]) },
+            { try await tree.clearMetadata(keys: ["message"]) },
             { try await tree.commit(message: "x") },
         ]
         for call in calls {
