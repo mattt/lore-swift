@@ -60,6 +60,8 @@ extension Repository {
     /// and the server still doesn't find the repository afterward.
     /// A server lets the user who created the repository delete it,
     /// and a user that it grants the `owner` or `admin` permission.
+    /// A server without authentication identifies every user as the same user,
+    /// so it lets every user delete every repository.
     ///
     /// - Parameters:
     ///   - url: The URL of the repository,
