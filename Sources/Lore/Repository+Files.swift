@@ -380,8 +380,11 @@ extension Repository {
     ///     Pass `["."]` to reset every file.
     ///   - revision: The revision whose content to restore,
     ///     or `nil` for the current revision.
-    ///   - deletingUntrackedFiles: Whether to delete the files under `paths`
-    ///     that the repository doesn't track.
+    ///   - deletingUntrackedFiles: Whether to delete what the revision
+    ///     doesn't hold under `paths`:
+    ///     untracked files, whether or not the ignore file matches them,
+    ///     and files that the view excludes.
+    ///     Nested repositories stay.
     /// - Returns: The files that were reset.
     /// - Throws: ``LoreError`` if the library can't reset the files.
     @discardableResult
@@ -422,8 +425,11 @@ extension Repository {
     ///   - side: The version of each file to restore:
     ///     the content that the merge committed,
     ///     or the version from either side of the merge.
-    ///   - deletingUntrackedFiles: Whether to delete the files under `paths`
-    ///     that the repository doesn't track.
+    ///   - deletingUntrackedFiles: Whether to delete what the revision
+    ///     doesn't hold under `paths`:
+    ///     untracked files, whether or not the ignore file matches them,
+    ///     and files that the view excludes.
+    ///     Nested repositories stay.
     /// - Returns: The files that were reset.
     /// - Throws: ``LoreError`` if the library can't reset the files,
     ///   such as ``LoreError/Code/branchNotFound``

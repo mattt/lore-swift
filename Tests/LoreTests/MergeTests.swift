@@ -744,10 +744,17 @@ let conflictMarkers = "<<<<<<< ours\nmain\n||||||| original\nbase\n=======\nfeat
 
         try await repository.cherryPick(.id(picks[1].id), committing: false)
         #expect(repository.exists("d.txt"))
+        // Discarding local changes leaves the file that the cherry-pick added,
+        // which the repository doesn't track.
         try await repository.sync(discardingLocalChanges: true)
-        #expect(!repository.exists("d.txt"))
-        let status = try await repository.status()
+        #expect(repository.exists("d.txt"))
+        var status = try await repository.status()
         #expect(status.revision == pick.id)
+        #expect(status.files.map(\.path) == ["d.txt"])
+        #expect(status.files.allSatisfy { $0.action == .add && !$0.isStaged && !$0.isMerged })
+        try await repository.reset(["."], deletingUntrackedFiles: true)
+        #expect(!repository.exists("d.txt"))
+        status = try await repository.status()
         #expect(status.files.isEmpty)
     }
 
@@ -769,13 +776,22 @@ let conflictMarkers = "<<<<<<< ours\nmain\n||||||| original\nbase\n=======\nfeat
         }
         #expect(abort?.code == .internal)
 
+        // Discarding local changes leaves the file that the cherry-pick added,
+        // which the repository doesn't track.
         try await repository.sync(discardingLocalChanges: true)
         #expect(try repository.read("a.txt") == "main\n")
-        #expect(!repository.exists("c.txt"))
-        let status = try await repository.status()
+        #expect(repository.exists("c.txt"))
+        var status = try await repository.status()
         #expect(status.revision == main.id)
-        #expect(status.files.isEmpty)
+        #expect(status.files.map(\.path) == ["c.txt"])
+        #expect(status.files.allSatisfy { $0.action == .add && !$0.isStaged && !$0.isMerged })
         // The files with each version remain.
         #expect(repository.exists("a.txt~theirs"))
+
+        try await repository.reset(["."], deletingUntrackedFiles: true)
+        #expect(!repository.exists("c.txt"))
+        #expect(!repository.exists("a.txt~theirs"))
+        status = try await repository.status()
+        #expect(status.files.isEmpty)
     }
 }

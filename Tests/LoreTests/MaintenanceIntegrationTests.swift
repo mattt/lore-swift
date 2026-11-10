@@ -37,23 +37,26 @@ import Testing
         #expect(try await repository.configurationValue(forKey: .remoteURL) == serverURL)
     }
 
-    @Test func openServerRefusesToDeleteRepositories() async throws {
+    @Test func openServerLetsAnyUserDeleteRepositories() async throws {
         // The open server identifies every user as `<unknown>`,
-        // who isn't the creator of any repository.
-        let (repository, url) = try await makePublishedRepository()
-        let error = await #expect(throws: LoreError.self) {
-            try await repository.deleteFromServer()
-        }
-        #expect(error?.code == .notAuthorized)
-        let byURL = await #expect(throws: LoreError.self) {
-            try await Repository.deleteFromServer(url, options: repository.options)
-        }
-        #expect(byURL?.code == .notAuthorized)
-        #expect(
+        // who is the creator of every repository on it.
+        func isListed(_ url: String) async throws -> Bool {
             try await Repository.repositories(on: serverURL).contains {
                 $0.name == (URL(string: url)?.lastPathComponent ?? "")
             }
-        )
+        }
+        let (repository, url) = try await makePublishedRepository()
+        #expect(try await isListed(url))
+        try await repository.deleteFromServer()
+        #expect(try await !isListed(url))
+
+        let (other, otherURL) = try await makePublishedRepository("other")
+        try await Repository.deleteFromServer(otherURL, options: Repository.Options(identity: "bob@example.com"))
+        #expect(try await !isListed(otherURL))
+        let again = await #expect(throws: LoreError.self) {
+            try await other.deleteFromServer()
+        }
+        #expect(again?.code == .notFound)
     }
 
     @Test func storeEntriesIncludeTheServer() async throws {
