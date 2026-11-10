@@ -142,6 +142,10 @@ extension Repository {
     ///     or `nil` for the latest revision of the current branch.
     ///   - discardingLocalChanges: Whether to replace local changes
     ///     with the content of the revision.
+    ///     Untracked files stay,
+    ///     including files that a discarded merge or cherry-pick added.
+    ///     Call ``reset(_:to:deletingUntrackedFiles:)``
+    ///     with `deletingUntrackedFiles` set to delete them.
     /// - Returns: The result of the sync.
     /// - Throws: ``LoreError`` if the library can't sync,
     ///   such as ``LoreError/Code/localModifications``.
@@ -170,6 +174,10 @@ extension Repository {
     ///     or `nil` for the latest revision of the current branch.
     ///   - discardingLocalChanges: Whether to replace local changes
     ///     with the content of the revision.
+    ///     Untracked files stay,
+    ///     including files that a discarded merge or cherry-pick added.
+    ///     Call ``reset(_:to:deletingUntrackedFiles:)``
+    ///     with `deletingUntrackedFiles` set to delete them.
     /// - Returns: A stream of the sync's progress, then its result.
     ///   The stream throws ``LoreError`` if the sync fails.
     public func syncUpdates(

@@ -157,6 +157,10 @@ extension Repository {
     ///     or `nil` for its latest revision.
     ///   - discardingLocalChanges: Whether to replace local changes
     ///     with the content of the revision.
+    ///     Untracked files stay,
+    ///     including files that a discarded merge or cherry-pick added.
+    ///     Call ``reset(_:to:deletingUntrackedFiles:)``
+    ///     with `deletingUntrackedFiles` set to delete them.
     /// - Returns: The revision that the working directory holds after the switch.
     /// - Throws: ``LoreError`` if the library can't switch,
     ///   such as ``LoreError/Code/branchNotFound``.
