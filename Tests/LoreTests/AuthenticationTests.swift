@@ -65,8 +65,7 @@ import Testing
         try await Authentication.logIn(token: token, authenticationURL: authenticationURL)
 
         let current = try await Authentication.localUsers(authenticationURL: authenticationURL)
-        #expect(current.map(\.id) == ["alice"])
-        #expect(current.first?.identityToken == nil)
+        #expect(current == [Authentication.User(id: "alice", name: "alice.liddell")])
 
         let users = try await Authentication.localUsers(
             withIDs: ["alice", "bob"],
@@ -76,7 +75,7 @@ import Testing
         #expect(users.map(\.id) == ["alice", "bob"])
         #expect(users.last == Authentication.User(id: "bob", name: "bob"))
         let alice = try #require(users.first)
-        #expect(alice.name == "Alice Liddell")
+        #expect(alice.name == "alice.liddell")
         #expect(
             alice.identityToken
                 == Authentication.IdentityToken(

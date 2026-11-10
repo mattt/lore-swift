@@ -360,6 +360,7 @@ extension Authentication {
     ///   - authenticationURL: The URL of the authentication service.
     ///   - includingTokens: Whether to include the stored identity token
     ///     of each user who has one.
+    ///     A user has the same name whether or not this is `true`.
     /// - Returns: The users,
     ///   or an empty array if `ids` is empty and no user has a stored token.
     /// - Throws: ``LoreError`` if the library can't read the token store,
@@ -494,6 +495,7 @@ extension Repository {
     ///     or else the first user with a stored token for the service.
     ///   - includingTokens: Whether to include the stored identity token
     ///     of each user who has one.
+    ///     A user has the same name whether or not this is `true`.
     /// - Returns: The users.
     /// - Throws: ``LoreError`` if the library can't read the token store,
     ///   such as ``LoreError/Code/noRemote`` for a repository without a server.
@@ -593,7 +595,7 @@ extension Repository {
         authenticationURL: String?,
         includingTokens: Bool
     ) async throws -> [Authentication.User] {
-        try await perform(
+        let users = try await perform(
             lore_auth_local_user_info_async,
             configure: { (arguments: UnsafeMutablePointer<lore_auth_local_user_info_args_t>, arena) in
                 arguments.pointee.auth_endpoint = arena.string(authenticationURL)
@@ -602,6 +604,24 @@ extension Repository {
             },
             transform: AuthenticationEvent.user
         )
+        // The library reports every user with a user info event,
+        // and a user with a stored token also with a token event before it.
+        // The token event has a token only if the call asks for one.
+        var result: [Authentication.User] = []
+        var identityToken: (userID: String, token: Authentication.IdentityToken)?
+        for user in users {
+            if let token = user.identityToken {
+                identityToken = token.token.value.isEmpty ? nil : (user.id, token)
+                continue
+            }
+            var user = user
+            if let identityToken, identityToken.userID == user.id {
+                user.identityToken = identityToken.token
+            }
+            identityToken = nil
+            result.append(user)
+        }
+        return result
     }
 }
 
