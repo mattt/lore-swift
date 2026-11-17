@@ -113,8 +113,8 @@ import Testing
         let updated = try await app.linkInfo(at: "vendor/library")
         #expect(updated.link.revision == second.id)
         #expect(updated.stagedChange == .modified)
-        // An update names the link's branch.
-        #expect(!updated.link.tracksCurrentBranch)
+        // An update to a revision on the current branch keeps following it.
+        #expect(updated.link.tracksCurrentBranch)
         try await app.commit(message: "Update the library")
 
         #expect(try await app.updateLink(at: "vendor/library", to: .number(1, on: "main")) == first.id)
