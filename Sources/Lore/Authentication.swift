@@ -443,6 +443,11 @@ extension Repository {
     /// it revokes the refresh token at the service
     /// if the service supports revocation.
     ///
+    /// Lore 0.14.0 keeps a connection to a server open
+    /// for five minutes after its last use and reuses it,
+    /// so some requests can still succeed after you log out,
+    /// such as a push with no revisions to send.
+    ///
     /// - Parameters:
     ///   - userID: The identifier of the user whose credentials to remove,
     ///     or `nil` for every user.

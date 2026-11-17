@@ -315,6 +315,12 @@ import Testing
 
             try await repository.logOut(resource: authorization.resource)
             #expect(try await Authentication.credentials().isEmpty)
+            // Lore 0.14.0 reuses the open connection to the server,
+            // where a push with nothing to send still succeeds,
+            // but the server refuses the push of a new revision.
+            try repository.write("goodbye\n", to: "a.txt")
+            try await repository.stage(["a.txt"])
+            try await repository.commit(message: "Second")
             let unauthorized = await #expect(throws: LoreError.self) {
                 try await repository.push()
             }
