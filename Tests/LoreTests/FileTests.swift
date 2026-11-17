@@ -291,7 +291,7 @@ import Testing
         #expect(try await unscannedFiles(repository).isEmpty)
     }
 
-    @Test func markMovedRecordsAMoveThatTheNextCommitRecords() async throws {
+    @Test func markMovedRecordsAMoveThatAStageCommits() async throws {
         let repository = try await repository()
         try FileManager.default.moveItem(atPath: "\(repository.path)/b.txt", toPath: "\(repository.path)/c.txt")
         try await repository.markMoved(from: "b.txt", to: "c.txt")
@@ -301,6 +301,15 @@ import Testing
         #expect(files["c.txt"]?.action == .move)
         #expect(files["c.txt"]?.isStaged == false)
 
+        // A commit leaves out the unstaged move and keeps its mark.
+        let nothing = await #expect(throws: LoreError.self) {
+            try await repository.commit(message: "Move")
+        }
+        #expect(nothing?.code == .nothingStaged)
+        #expect(try await unscannedFiles(repository)["c.txt"]?.action == .move)
+
+        // Lore 0.14.0 stages nothing here, so the commit fails.
+        try await repository.stage(["c.txt"], scanning: false)
         let revision = try await repository.commit(message: "Move")
         #expect(
             try await repository.changes(from: "main@1", to: .id(revision.id))
