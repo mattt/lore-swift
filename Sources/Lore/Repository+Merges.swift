@@ -376,8 +376,9 @@ extension Repository {
     /// A directory path with ``MergeSide/mine`` or ``MergeSide/theirs``
     /// replaces every file under it that the operation changed,
     /// including files without conflicts,
-    /// and Lore 0.12.0 then reports some of the files without conflicts,
-    /// such as files that the merge added, as in conflict.
+    /// and stages the version of that side,
+    /// such as the deletion of a file that the merge added
+    /// when you keep ``MergeSide/mine``.
     /// To keep a side for only the files in conflict,
     /// pass ``MergeResult/conflicts``.
     ///
@@ -386,8 +387,6 @@ extension Repository {
     ///     Pass `["."]` with ``MergeSide/merged`` to resolve every file.
     ///   - side: The version of each file that resolves its conflict.
     /// - Returns: The paths of the files that the call resolved or replaced.
-    ///   After a directory path with ``MergeSide/mine`` or ``MergeSide/theirs``,
-    ///   the paths can include files that Lore 0.12.0 then reports as in conflict.
     /// - Throws: ``LoreError`` if the library can't resolve the files.
     ///   Lore 0.12.0 reports that no merge is in progress
     ///   with ``LoreError/Code/internal``.
