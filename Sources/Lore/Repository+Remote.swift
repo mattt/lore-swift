@@ -99,6 +99,10 @@ extension Repository {
     /// The push starts when you call this method,
     /// whether or not you iterate the stream.
     ///
+    /// In a repository with links or layers,
+    /// Lore pushes their branches at the same time as this one,
+    /// so the stream reports the progress of each push in no fixed order.
+    ///
     /// - Parameters:
     ///   - branch: The name of the branch to push,
     ///     or `nil` for the current branch.

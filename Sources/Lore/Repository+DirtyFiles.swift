@@ -43,9 +43,17 @@ extension Repository {
     /// Lore moves the file's entry in the staged changes,
     /// so a status reports a move from `source`
     /// instead of a deletion and an addition.
-    /// The status reports the move as unstaged,
-    /// but the next commit records it.
     /// Move the file in the working directory yourself.
+    ///
+    /// The status reports the move as unstaged,
+    /// and a commit leaves it out:
+    /// the move stays marked after the commit,
+    /// and a commit with nothing else staged
+    /// throws ``LoreError/Code/nothingStaged``.
+    /// Lore 0.14.0 doesn't stage the move
+    /// when you ``stage(_:scanning:)`` `destination`,
+    /// so to commit a move,
+    /// call ``stageMove(from:to:)`` instead of this method.
     ///
     /// - Parameters:
     ///   - source: The path that the file moved from,

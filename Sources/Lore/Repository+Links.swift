@@ -31,7 +31,8 @@ public struct Link: Sendable, Hashable {
     /// instead of naming a branch of its own.
     ///
     /// When it does, ``branchID`` is the branch that the link resolved to.
-    /// Updating the link names its branch.
+    /// The link keeps following the current branch
+    /// after ``updateLink(at:to:)`` pins it to a revision on that branch.
     public var tracksCurrentBranch: Bool
 
     /// A Boolean value that indicates whether Lore creates

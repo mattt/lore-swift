@@ -374,12 +374,15 @@ let conflictMarkers = "<<<<<<< ours\nmain\n||||||| original\nbase\n=======\nfeat
         #expect(try repository.read("auto.txt") == "1\n2\n3\n4\n5\n6 main\n")
         #expect(!repository.exists("c.txt"))
         let status = try await repository.status()
-        for file in ["a.txt", "auto.txt", "b.txt"] {
-            let entry = try #require(status.files.first { $0.path == file })
-            #expect(!entry.isConflicted)
-            #expect(entry.conflictResolution == .mine)
-        }
-        #expect(status.files.filter(\.isConflicted).map(\.path).sorted() == ["c.txt", "d.txt"])
+        #expect(status.files.allSatisfy { !$0.isConflicted && $0.conflictResolution == .mine })
+        #expect(status.files.filter { $0.action == .delete }.map(\.path).sorted() == ["c.txt", "d.txt"])
+
+        // The merge keeps this branch's version of every file.
+        let merge = try await repository.commit(message: "Merge feature")
+        #expect(merge.parents.count == 2)
+        #expect(!repository.exists("c.txt"))
+        #expect(!repository.exists("d.txt"))
+        #expect(try await repository.status().files.isEmpty)
     }
 
     @Test func resetToTheLastMerge() async throws {
@@ -630,17 +633,18 @@ let conflictMarkers = "<<<<<<< ours\nmain\n||||||| original\nbase\n=======\nfeat
         #expect(try await repository.revert("main@2").conflicts.sorted() == ["a.txt", "b.txt"])
 
         // Resolving a directory with a side also replaces `c.txt`,
-        // which the revert changed without conflict,
-        // and Lore 0.12.0 then reports `c.txt` as in conflict.
+        // which the revert changed without conflict.
         #expect(
             try await repository.resolveConflicts(in: ["."], keeping: .theirs).sorted() == ["a.txt", "b.txt", "c.txt"]
         )
         #expect(try repository.read("a.txt") == "one\n")
         #expect(try repository.read("b.txt") == "b one\n")
+        #expect(try repository.read("c.txt") == "c\n")
         let status = try await repository.status()
-        #expect(status.files.filter(\.isConflicted).map(\.path) == ["c.txt"])
-        #expect(status.files.first { $0.path == "a.txt" }?.conflictResolution == .theirs)
-        #expect(status.files.first { $0.path == "b.txt" }?.conflictResolution == .theirs)
+        #expect(status.files.map(\.path).sorted() == ["a.txt", "b.txt", "c.txt"])
+        #expect(status.files.allSatisfy { !$0.isConflicted && $0.conflictResolution == .theirs })
+        try await repository.commit(message: "Revert two")
+        #expect(try await repository.status().files.isEmpty)
     }
 
     @Test func unresolveRestartAndAbortARevert() async throws {
