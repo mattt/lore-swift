@@ -57,6 +57,8 @@ import Testing
         #expect(try await repository.history(since: Date(timeIntervalSince1970: 0)).count == 3)
         #expect(try await repository.history(since: Date(timeIntervalSince1970: -1)).count == 3)
         #expect(try await repository.history(since: .distantPast).count == 3)
+        let earliest = Date(timeIntervalSince1970: -TimeInterval.greatestFiniteMagnitude)
+        #expect(try await repository.history(since: earliest).count == 3)
         #expect(try await repository.history(since: .distantFuture).isEmpty)
     }
 
