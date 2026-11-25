@@ -57,14 +57,15 @@ extension UInt64 {
     /// Returns `nil` for a date that isn't finite
     /// or that's later than the largest timestamp.
     init?(timestampAtOrAfter date: Date) {
-        let milliseconds = (date.timeIntervalSince1970 * 1000).rounded(.up)
-        guard milliseconds.isFinite else {
+        let seconds = date.timeIntervalSince1970
+        guard seconds.isFinite else {
             return nil
         }
-        guard milliseconds > 0 else {
+        guard seconds > 0 else {
             self = 0
             return
         }
+        let milliseconds = (seconds * 1000).rounded(.up)
         guard let value = UInt64(exactly: milliseconds) else {
             return nil
         }
