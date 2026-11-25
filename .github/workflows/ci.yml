@@ -10,7 +10,7 @@ on:
 jobs:
   test-macos:
     name: Swift ${{ matrix.swift }} on macOS ${{ matrix.macos }} with Xcode ${{ matrix.xcode }}
-    runs-on: macos-${{ matrix.macos }}
+    runs-on: ${{ matrix.runs-on }}
     env:
       DEVELOPER_DIR: "/Applications/Xcode_${{ matrix.xcode }}.app/Contents/Developer"
     strategy:
@@ -20,9 +20,15 @@ jobs:
           - macos: "26"
             swift: "6.2"
             xcode: "26.3"
+            runs-on: macos-26
           - macos: "26"
             swift: "6.3"
             xcode: "26.6"
+            runs-on: macos-26
+          - macos: "27"
+            swift: "6.4"
+            xcode: "27.0"
+            runs-on: xcode-27
     timeout-minutes: 10
     steps:
       - name: Checkout code
